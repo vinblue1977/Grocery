@@ -17,6 +17,12 @@ const snapshot = (): Snapshot => ({
     { id: 'eggs', storeId: 'c', name: 'Eggs', note: '', checked: true, addedBy: 'Vinod', updatedAt: 2 },
     { id: 'rice', storeId: 'p', name: 'Rice', note: '', checked: false, addedBy: 'Vinod', updatedAt: 3 },
   ],
+  frequent: [
+    { storeId: 'c', name: 'Milk', count: 5, pinned: false }, // already on the list, so not offered
+    { storeId: 'c', name: 'Bananas', count: 4, pinned: false },
+    { storeId: 'c', name: 'Saffron', count: 0, pinned: true },
+    { storeId: 'p', name: 'Ghee', count: 3, pinned: false },
+  ],
 });
 
 const session = { token: 't', householdId: 'h', deviceId: 'd', deviceName: 'Vinod' };
@@ -55,6 +61,7 @@ beforeEach(() => {
     addStore: vi.fn().mockResolvedValue({ id: 'n', name: 'New', order: 2 }),
     scan: vi.fn().mockResolvedValue([{ name: 'Tea', note: '', storeId: 'c', unsure: false }]),
     addItems: vi.fn().mockResolvedValue({ added: 1, skipped: 1 }),
+    setFrequent: vi.fn().mockResolvedValue({}),
   } as unknown as Api;
 });
 
@@ -174,6 +181,72 @@ describe('Lists screen', () => {
     await click(root.querySelector('[aria-label="Check off Milk"]')); // optimistic update plus refresh re-render the screen
     await flush();
     expect(document.activeElement).not.toBe(root.querySelector('input[placeholder="Store name"]'));
+  });
+
+  const chip = (root: HTMLElement, name: string) => root.querySelector(`[aria-label="${name}"]`);
+  const chipNames = (root: HTMLElement) => Array.from(root.querySelectorAll('[aria-label="Often bought"] .chip')).map((c) => c.textContent?.replaceAll('📌', '').replace('✕', '').trim());
+
+  it('offers the often-bought items of this store as chips, leaving out ones already on the list', async () => {
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await flush();
+    expect(chipNames(root)).toEqual(['Bananas', 'Saffron']); // Costco: not Milk (on the list), not Ghee (Patel)
+    await click(Array.from(root.querySelectorAll('.tab')).find((t) => t.textContent === 'Patel') ?? null);
+    expect(chipNames(root)).toEqual(['Ghee']);
+  });
+
+  it('adds an item when its chip is tapped', async () => {
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await flush();
+    await click(chip(root, 'Add Bananas'));
+    expect(api.addItem).toHaveBeenCalledWith('c', 'Bananas');
+  });
+
+  it('narrows the chips as you type, and hides Edit while typing', async () => {
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await flush();
+    const input = root.querySelector('input') as HTMLInputElement;
+    input.value = 'ban';
+    await act(() => {
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(chipNames(root)).toEqual(['Bananas']);
+    expect(Array.from(root.querySelectorAll('button')).some((b) => b.textContent === 'Edit')).toBe(false);
+  });
+
+  it('pins and removes suggestions in Edit mode', async () => {
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await flush();
+    await click(Array.from(root.querySelectorAll('button')).find((b) => b.textContent === 'Edit') ?? null);
+    expect(chipNames(root)).toEqual(['Milk', 'Bananas', 'Saffron']); // Edit shows all so each can be managed
+    await click(chip(root, 'Pin Bananas'));
+    expect(api.setFrequent).toHaveBeenCalledWith('c', 'Bananas', { pinned: true });
+    await click(chip(root, 'Unpin Saffron'));
+    expect(api.setFrequent).toHaveBeenCalledWith('c', 'Saffron', { pinned: false });
+    await click(chip(root, 'Remove Milk from suggestions'));
+    expect(api.setFrequent).toHaveBeenCalledWith('c', 'Milk', { hidden: true });
+    await click(Array.from(root.querySelectorAll('button')).find((b) => b.textContent === 'Done') ?? null);
+    expect(root.querySelector('[aria-label="Add Bananas"]')).not.toBeNull();
+  });
+
+  it('leaves Edit mode when you start typing, so chips add again', async () => {
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await flush();
+    await click(Array.from(root.querySelectorAll('button')).find((b) => b.textContent === 'Edit') ?? null);
+    const input = root.querySelector('input') as HTMLInputElement;
+    input.value = 'ban';
+    await act(() => {
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await click(chip(root, 'Add Bananas'));
+    expect(api.addItem).toHaveBeenCalledWith('c', 'Bananas');
+    expect(api.setFrequent).not.toHaveBeenCalled();
+  });
+
+  it('shows no Often row when there is nothing to suggest', async () => {
+    vi.mocked(api.sync).mockResolvedValue({ ...snapshot(), frequent: [] });
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await flush();
+    expect(root.querySelector('[aria-label="Often bought"]')).toBeNull();
   });
 
   it('deletes an item and clears the cart', async () => {
