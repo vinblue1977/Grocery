@@ -23,6 +23,8 @@ export function Settings({ api, lists, session, onSignedOut, onBack }: Props) {
   const [devices, setDevices] = useState<Device[]>([]);
   const [link, setLink] = useState('');
   const [note, setNote] = useState('');
+  const [recovery, setRecovery] = useState('');
+  const [confirmingRecovery, setConfirmingRecovery] = useState(false);
 
   const refresh = () =>
     api.devices().then(setDevices, (err: unknown) => {
@@ -58,6 +60,27 @@ export function Settings({ api, lists, session, onSignedOut, onBack }: Props) {
       setNote('Link copied');
     } catch {
       setNote('Press and hold the link to copy it');
+    }
+  };
+
+  const createRecovery = async () => {
+    if (!confirmingRecovery) return setConfirmingRecovery(true);
+    setConfirmingRecovery(false);
+    setNote('');
+    setRecovery(''); // never leave an old code on screen while a replacement may be going through
+    try {
+      setRecovery((await api.createRecovery()).code);
+    } catch {
+      setNote('Could not create a recovery code. If it may have gone through, the old code might no longer work: try again.');
+    }
+  };
+
+  const copyRecovery = async () => {
+    try {
+      await navigator.clipboard.writeText(recovery);
+      setNote('Recovery code copied');
+    } catch {
+      setNote('Press and hold the code to copy it');
     }
   };
 
@@ -136,8 +159,10 @@ export function Settings({ api, lists, session, onSignedOut, onBack }: Props) {
         ))}
       </section>
 
-      <section class="card">
-        <strong>Invite your partner</strong>
+      <details class="card">
+        <summary>
+          <strong>Invite your partner</strong>
+        </summary>
         <p class="muted">One-time link, valid for 24 hours. They open it on their iPhone and stay signed in.</p>
         <button class="primary" type="button" onClick={() => void invite()}>
           Create invite link
@@ -150,7 +175,29 @@ export function Settings({ api, lists, session, onSignedOut, onBack }: Props) {
             </button>
           </>
         )}
-      </section>
+      </details>
+
+      <details class="card">
+        <summary>
+          <strong>Recovery code</strong>
+        </summary>
+        <p class="muted">
+          If you ever lose all your devices, this code gets you back in. Keep it somewhere safe, like a password manager. Anyone
+          with it can sign in to your household. Lost or sold a phone? Remove it under Devices, then create a new code here.
+        </p>
+        <button type="button" class={confirmingRecovery ? 'danger' : undefined} onClick={() => void createRecovery()}>
+          {confirmingRecovery ? 'This replaces any older code. Create it?' : 'Create a recovery code'}
+        </button>
+        {recovery && (
+          <>
+            <p class="link recovery">{recovery}</p>
+            <button type="button" onClick={() => void copyRecovery()}>
+              Copy code
+            </button>
+            <p class="tip">Save it now. It will not be shown again.</p>
+          </>
+        )}
+      </details>
 
       <section class="card">
         <strong>Devices</strong>

@@ -70,6 +70,8 @@ export interface Api {
   join(code: string, deviceName: string): Promise<Credentials>;
   me(): Promise<{ householdId: string; deviceId: string; deviceName: string }>;
   invite(): Promise<{ code: string; expiresAt: number }>;
+  createRecovery(): Promise<{ code: string }>;
+  recover(code: string, deviceName: string): Promise<Credentials>;
   devices(): Promise<Device[]>;
   revoke(deviceId: string): Promise<void>;
   sync(): Promise<Snapshot>;
@@ -131,6 +133,8 @@ export function createApi(baseUrl: string, getToken: () => string | null, fetchI
     join: (code, deviceName) => request('POST', '/join', { code, deviceName }),
     me: () => request('GET', '/me'),
     invite: () => request('POST', '/invites'),
+    createRecovery: () => request('POST', '/recovery'),
+    recover: (code, deviceName) => request('POST', '/recover', { code, deviceName }),
     devices: async () => (await request<{ devices: Device[] }>('GET', '/devices')).devices,
     revoke: (deviceId) => request('DELETE', `/devices/${encodeURIComponent(deviceId)}`),
     sync: async () => {

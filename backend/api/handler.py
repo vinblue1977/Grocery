@@ -63,6 +63,8 @@ def _route(
         return _response(200, {"householdId": session.household_id, "deviceId": session.device_id, "deviceName": device["name"]})
     if (method, path) == ("POST", "/invites"):
         return _response(201, households.create_invite(table, session))
+    if (method, path) == ("POST", "/recovery"):
+        return _response(201, households.create_recovery(table, session))
     if (method, path) == ("GET", "/devices"):
         return _response(200, {"devices": households.list_devices(table, session)})
     if route == ("DELETE", "devices", 2):
@@ -129,6 +131,13 @@ def handler(event: dict[str, Any], _context: object) -> dict[str, Any]:
             return _response(201, households.join(table, code, households.clean_name(body.get("deviceName"), "Device")))
         except households.InvalidInvite:
             return _response(404, {"error": "invite is invalid or expired"})
+    if (method, path) == ("POST", "/recover"):
+        body = _json_body(event)
+        try:
+            creds = households.recover(table, body.get("code"), households.clean_name(body.get("deviceName"), "Device"))
+        except households.InvalidRecovery:
+            return _response(400, {"error": "invalid recovery code"})
+        return _response(201, creds)
     session = households.authenticate(table, (event.get("headers") or {}).get("authorization"))
     if session is None:
         return _response(401, {"error": "sign in required"})
