@@ -40,6 +40,10 @@ class NotFound(Exception):
     pass
 
 
+class InvalidName(Exception):
+    """A rename was sent with no usable name."""
+
+
 class LastDevice(Exception):
     """Removing the only device would leave nobody able to sign in or invite."""
 
@@ -238,7 +242,9 @@ def rename_device(table: Any, session: Session, device_id: str, name: object) ->
     """A device may only rename itself. The condition stops the update from recreating a device removed meanwhile."""
     if device_id != session.device_id:
         raise NotFound
-    clean = clean_name(name, "Device")
+    clean = clean_name(name, "")
+    if not clean:
+        raise InvalidName  # unlike sign-in, a rename never falls back to a placeholder: it would erase the current name
     try:
         table.update_item(
             Key={"PK": f"H#{session.household_id}", "SK": f"DEVICE#{device_id}"},

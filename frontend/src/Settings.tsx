@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { ApiError, type Api, type Device } from './api';
 import { buildInviteLink } from './invite';
 import { withoutStore, withRenamedStore } from './listState';
@@ -20,6 +20,7 @@ interface Props {
 export function Settings({ api, lists, session, onSignedOut, onRenamed, onBack }: Props) {
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const [renamingDevice, setRenamingDevice] = useState<string | null>(null);
+  const renameInput = useRef<HTMLInputElement>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [pref, setPref] = useState<ThemePref>(loadPref);
   const [devices, setDevices] = useState<Device[]>([]);
@@ -33,6 +34,10 @@ export function Settings({ api, lists, session, onSignedOut, onRenamed, onBack }
       if (err instanceof ApiError && err.status === 401) onSignedOut(); // this device was revoked elsewhere
       else setNote('Could not load devices');
     });
+
+  useEffect(() => {
+    if (renamingDevice !== null) renameInput.current?.focus(); // once, when the form opens; not on every keystroke
+  }, [renamingDevice === null]);
 
   useEffect(() => {
     void refresh();
@@ -98,10 +103,11 @@ export function Settings({ api, lists, session, onSignedOut, onRenamed, onBack }
   };
 
   const renameDevice = async (name: string) => {
-    setRenamingDevice(null);
-    if (!name || name === session.deviceName) return;
+    if (!name) return;
     try {
       const done = await api.renameDevice(session.deviceId, name);
+      setRenamingDevice(null); // only close on success, so a failed save keeps what was typed
+      setNote('');
       onRenamed(done.name);
       await refresh();
     } catch (err) {
@@ -225,9 +231,17 @@ export function Settings({ api, lists, session, onSignedOut, onRenamed, onBack }
                   e.preventDefault();
                   void renameDevice(renamingDevice.trim());
                 }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' && !e.isComposing) setRenamingDevice(null);
+                }}
               >
-                <input value={renamingDevice} maxLength={40} onInput={(e) => setRenamingDevice(e.currentTarget.value)} />
-                <button type="submit">Save</button>
+                <input ref={renameInput} value={renamingDevice} maxLength={40} onInput={(e) => setRenamingDevice(e.currentTarget.value)} />
+                <button type="button" onClick={() => setRenamingDevice(null)}>
+                  Cancel
+                </button>
+                <button type="submit" disabled={!renamingDevice.trim()}>
+                  Save
+                </button>
               </form>
             ) : (
               <>

@@ -83,27 +83,48 @@ describe('renaming this device', () => {
     expect(root.querySelector('form')).toBeNull();
   });
 
-  it('ignores an empty or unchanged name', async () => {
+  it('does not send a blank name, and disables Save for one', async () => {
     const root = await mount();
     await click(buttons(root, 'Rename')[0]);
     await typeName(root, '   ');
-    await click(buttons(root, 'Rename')[0]);
-    await typeName(root, 'Vinod');
     expect(api.renameDevice).not.toHaveBeenCalled();
-    expect(onRenamed).not.toHaveBeenCalled();
+    expect(buttons(root, 'Save')[0]?.disabled).toBe(true);
+    expect(root.querySelector('form')).not.toBeNull(); // still open: nothing to lose
   });
 
-  it('says so when it fails, and signs out if this device was revoked', async () => {
+  it('sends the name even if it matches the cached one, so the server copy can be corrected', async () => {
+    const root = await mount();
+    await click(buttons(root, 'Rename')[0]);
+    await typeName(root, 'Vinod');
+    expect(api.renameDevice).toHaveBeenCalledWith('d', 'Vinod');
+  });
+
+  it('keeps the form and what was typed when saving fails, and signs out if this device was revoked', async () => {
     api.renameDevice = vi.fn().mockRejectedValue(new ApiError(500, 'boom'));
     const root = await mount();
     await click(buttons(root, 'Rename')[0]);
     await typeName(root, 'New');
     expect(root.textContent).toContain('Could not rename this device');
+    expect((root.querySelector('form input') as HTMLInputElement).value).toBe('New'); // nothing lost, retry is one tap
     expect(onRenamed).not.toHaveBeenCalled();
 
     api.renameDevice = vi.fn().mockRejectedValue(new ApiError(401, 'sign in required'));
-    await click(buttons(root, 'Rename')[0]);
     await typeName(root, 'Newer');
     expect(onSignedOut).toHaveBeenCalled();
+  });
+
+  it('focuses the box on open, and Cancel or Escape closes it without saving', async () => {
+    const root = await mount();
+    await click(buttons(root, 'Rename')[0]);
+    const box = root.querySelector('form input') as HTMLInputElement;
+    expect(document.activeElement).toBe(box);
+    await click(buttons(root, 'Cancel')[0]);
+    expect(root.querySelector('form')).toBeNull();
+    await click(buttons(root, 'Rename')[0]);
+    await act(() => {
+      (root.querySelector('form input') as HTMLInputElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(root.querySelector('form')).toBeNull();
+    expect(api.renameDevice).not.toHaveBeenCalled();
   });
 });

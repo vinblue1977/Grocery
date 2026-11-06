@@ -80,6 +80,8 @@ def _route(
             return _response(200, households.rename_device(table, session, parts[1], body.get("name")))
         except households.NotFound:
             return _response(404, {"error": "no such device"})
+        except households.InvalidName:
+            return _response(400, {"error": "a name is required"})
     if (method, path) == ("GET", "/sync"):
         return _response(200, lists.sync(table, session))
     if (method, path) == ("POST", "/stores"):

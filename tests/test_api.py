@@ -121,8 +121,15 @@ def test_device_rename_is_cleaned_and_capped(table):
     me = create()
     path = f"/devices/{me['deviceId']}"
     assert call("PATCH", path, {"name": "x" * 100}, token=me["token"])[1]["name"] == "x" * 40
-    assert call("PATCH", path, {"name": "   "}, token=me["token"])[1]["name"] == "Device"
-    assert call("PATCH", path, {}, token=me["token"])[1]["name"] == "Device"
+    assert call("PATCH", path, {"name": "  Yaso  "}, token=me["token"])[1]["name"] == "Yaso"
+
+
+def test_a_blank_device_rename_is_refused_and_keeps_the_old_name(table):
+    me = create("Vinod")
+    path = f"/devices/{me['deviceId']}"
+    for body in ({"name": "   "}, {}, {"name": 5}):
+        assert call("PATCH", path, body, token=me["token"])[0] == 400
+    assert call("GET", "/me", token=me["token"])[1]["deviceName"] == "Vinod"
 
 
 def test_a_device_cannot_rename_another_one(table):
