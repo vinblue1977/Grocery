@@ -162,6 +162,8 @@ export function useLists(api: Api, onSignedOut: () => void, householdId?: string
               if (isSuspect(status)) {
                 const a = attempts.current.op === op ? attempts.current : { op, count: 0, since: Date.now() };
                 attempts.current = { ...a, count: a.count + 1 };
+              } else {
+                attempts.current = { op: null, count: 0, since: 0 }; // busy or offline ends the run: only consecutive errors count
               }
               const a = attempts.current;
               if (a.op === op && a.count >= MAX_ATTEMPTS && Date.now() - a.since >= GIVE_UP_MS) {

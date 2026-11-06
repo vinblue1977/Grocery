@@ -230,6 +230,25 @@ describe('edit queue safeguards', () => {
     expect(state.pending).toBe(12); // offline attempts never drop anything, however long
   });
 
+  it('does not carry old server errors over an offline spell: only consecutive errors count toward giving up', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const addItem = vi.fn().mockRejectedValueOnce(new ApiError(500, 'boom')).mockRejectedValueOnce(offlineError());
+    addItem.mockRejectedValue(new ApiError(500, 'boom'));
+    mount(fake({ addItem }));
+    await settle();
+    await act(async () => {
+      await add('i1', 'Tea'); // one 500
+    });
+    goOnline();
+    await settle(); // an offline answer ends the run
+    vi.setSystemTime(Date.now() + 8 * 60 * 60 * 1000); // hours later
+    for (let i = 0; i < 12; i++) {
+      goOnline(); // a short hiccup: many quick 500s
+      await settle();
+    }
+    expect(state.pending).toBe(1); // nowhere near 10 consecutive errors over 15 minutes
+  });
+
   it.each([503, 429, 408])('never drops an edit because the server answered %i (busy, not unhappy with the edit)', async (status) => {
     const addItem = vi.fn().mockRejectedValue(new ApiError(status, 'busy'));
     const root = mount(fake({ addItem }));
