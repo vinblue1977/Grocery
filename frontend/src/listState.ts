@@ -1,4 +1,5 @@
 import type { Frequent, Item, Snapshot, Store } from './api';
+import type { Op } from './queue';
 
 /** Pure helpers: what the screen shows, and the instant (optimistic) edits applied before the server answers. */
 
@@ -67,3 +68,37 @@ export function withPinned(data: Snapshot, storeId: string, name: string, pinned
 export function withoutFrequent(data: Snapshot, storeId: string, name: string): Snapshot {
   return { ...data, frequent: data.frequent.filter((f) => !(f.storeId === storeId && f.name.toLowerCase() === name.toLowerCase())) };
 }
+
+/**
+ * Applies a queued edit to a snapshot, the same way the instant (optimistic) edit did. An edit whose target is gone
+ * (or, for an add, already there) changes nothing, so re-applying the queue on top of a fresh server snapshot is safe.
+ */
+export function applyOp(data: Snapshot, op: Op): Snapshot {
+  switch (op.kind) {
+    case 'addItem': {
+      if (data.items.some((i) => i.id === op.id) || !data.stores.some((s) => s.id === op.storeId)) return data;
+      const added = withNewItem(data, op.id, op.storeId, op.name, op.addedBy ?? '');
+      return op.note ? { ...added, items: added.items.map((i) => (i.id === op.id ? { ...i, note: op.note ?? '' } : i)) } : added;
+    }
+    case 'updateItem':
+      return op.changes.name === undefined && op.changes.note === undefined && op.changes.checked !== undefined
+        ? withChecked(data, op.id, op.changes.checked)
+        : { ...data, items: data.items.map((i) => (i.id === op.id ? { ...i, ...op.changes } : i)) };
+    case 'deleteItem':
+      return withoutItem(data, op.id);
+    case 'clearChecked':
+      return withoutChecked(data, op.storeId);
+    case 'addStore':
+      return data.stores.some((s) => s.id === op.id) ? data : withNewStore(data, op.id, op.name);
+    case 'renameStore':
+      return withRenamedStore(data, op.id, op.name);
+    case 'deleteStore':
+      return withoutStore(data, op.id);
+    case 'setFrequent': {
+      const hidden = op.changes.hidden ? withoutFrequent(data, op.storeId, op.name) : data;
+      return op.changes.pinned === undefined ? hidden : withPinned(hidden, op.storeId, op.name, op.changes.pinned);
+    }
+  }
+}
+
+export const applyOps = (data: Snapshot, ops: Op[]): Snapshot => ops.reduce(applyOp, data);

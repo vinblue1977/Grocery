@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { ApiError, type Api, type Snapshot } from './api';
+import { applyOps } from './listState';
+import { loadQueue, saveQueue, setPendingCount, type Op } from './queue';
 import { loadSnapshot, saveSnapshot } from './snapshotCache';
 
 const POLL_MS = 5000;
@@ -9,33 +11,92 @@ const IDLE_EVERY = 6; // while idle, only every 6th tick polls (30 s)
 export interface ListsState {
   data: Snapshot | null;
   error: string;
-  /** Applies `optimistic` to the screen at once, sends `request`, then re-syncs (which also repairs a failed edit). */
-  mutate(optimistic: (data: Snapshot) => Snapshot, request: () => Promise<unknown>): Promise<void>;
+  /** Edits made on this device that the server has not confirmed yet (shown on screen already, replayed in order). */
+  pending: number;
+  /** True while queued edits are being sent. */
+  sending: boolean;
+  /** True when the last request failed for lack of a connection. */
+  offline: boolean;
+  /** A one-shot message about edits the server refused, e.g. "1 change could not be saved". */
+  problem: string;
+  /** Applies `optimistic` to the screen at once, queues `op` and sends the queue in order as soon as there is a connection. */
+  mutate(optimistic: (data: Snapshot) => Snapshot, op: Op): Promise<void>;
   refresh(): Promise<void>;
 }
 
+const BACKOFF_START_MS = 2000;
+const BACKOFF_MAX_MS = 60000;
+const PROBLEM_MS = 8000;
+
+function send(api: Api, op: Op): Promise<unknown> {
+  switch (op.kind) {
+    case 'addItem':
+      return api.addItem(op.storeId, op.name, op.note, op.id);
+    case 'updateItem':
+      return api.updateItem(op.id, op.changes);
+    case 'deleteItem':
+      return api.deleteItem(op.id);
+    case 'clearChecked':
+      return api.clearChecked(op.storeId);
+    case 'addStore':
+      return api.addStore(op.name, op.id);
+    case 'renameStore':
+      return api.renameStore(op.id, op.name);
+    case 'deleteStore':
+      return api.deleteStore(op.id);
+    case 'setFrequent':
+      return api.setFrequent(op.storeId, op.name, op.changes);
+  }
+}
+
+/** Offline, a server hiccup or a busy server: the edit is fine and will work later. */
+const isTransient = (status: number) => status === 0 || status === 408 || status === 429 || status >= 500;
+
 /**
  * Keeps the household's lists in sync: fetches on open and every 5 s while the app is visible and in use (every 30 s when
- * idle), and re-fetches when it comes back to the foreground. A poll that overlaps an edit is discarded, and a failed
- * edit is undone on screen, so the list never shows something the server doesn't have.
+ * idle), and re-fetches when it comes back to the foreground. Edits show at once, go into a queue saved on this device and
+ * are sent strictly in order; with no signal they wait and are replayed when it returns. A fresh server list never wipes
+ * queued edits: they are laid back on top of it.
  */
 export function useLists(api: Api, onSignedOut: () => void, householdId?: string): ListsState {
-  // The last list this device saw (for this household only) shows at once, and stays if the first sync fails offline.
-  const [cached] = useState(() => (householdId ? loadSnapshot(householdId) : null));
+  // The queue left from before a restart is sent first; the last list this device saw (for this household only) shows
+  // at once with those edits on top, and stays if the first sync fails offline.
+  const queue = useRef<Op[] | null>(null);
+  if (queue.current === null) queue.current = householdId ? loadQueue(householdId) : [];
+  const [cached] = useState(() => {
+    const saved = householdId ? loadSnapshot(householdId) : null;
+    return saved && queue.current ? applyOps(saved, queue.current) : saved;
+  });
   const [data, setData] = useState<Snapshot | null>(cached);
   const [error, setError] = useState('');
+  const [pending, setPending] = useState(queue.current.length);
+  const [sending, setSending] = useState(false);
+  const [offline, setOffline] = useState(false);
+  const [problem, setProblem] = useState('');
   const dataRef = useRef<Snapshot | null>(cached);
+  const server = useRef<Snapshot | null>(householdId ? loadSnapshot(householdId) : null); // last list the server sent, without queued edits
   const inFlight = useRef(0);
   const alive = useRef(true);
+  const draining = useRef(false); // one drain loop at a time, so ops are never sent twice or out of order
+  const failures = useRef(0);
+  const retryAt = useRef(0); // earliest time a timer-driven drain may try again after a transient failure
   const requestSeq = useRef(0); // only the newest sync may update the screen, so a slow old one can't overwrite newer data
   const editSeq = useRef(0); // bumps whenever an edit starts or ends, so a sync that began before it is discarded
   // Callers pass a fresh function every render; holding it in a ref keeps `refresh` stable so the polling effect runs once.
   const signedOut = useRef(onSignedOut);
   signedOut.current = onSignedOut;
+  setPendingCount(queue.current.length);
 
   const show = (next: Snapshot | null) => {
     dataRef.current = next;
     setData(next);
+  };
+
+  const setQueue = (ops: Op[]) => {
+    queue.current = ops;
+    if (householdId) saveQueue(householdId, ops);
+    setPendingCount(ops.length);
+    if (alive.current) setPending(ops.length);
   };
 
   const refresh = useCallback(async () => {
@@ -45,43 +106,91 @@ export function useLists(api: Api, onSignedOut: () => void, householdId?: string
     try {
       const next = await api.sync();
       if (alive.current && mine === requestSeq.current && edits === editSeq.current && inFlight.current === 0) {
-        show(next);
+        server.current = next;
+        show(applyOps(next, queue.current ?? [])); // edits still waiting to be sent stay on screen
         if (householdId) saveSnapshot(householdId, next);
         setError('');
+        setOffline(false);
       }
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) signedOut.current();
-      else if (alive.current) setError(err instanceof ApiError && err.status === 0 ? 'Offline: showing the last list' : 'Could not sync');
+      else if (alive.current) {
+        const off = err instanceof ApiError && err.status === 0;
+        setOffline(off);
+        setError(off ? 'Offline: showing the last list' : 'Could not sync');
+      }
     }
   }, [api, householdId]);
 
-  const mutate = useCallback<ListsState['mutate']>(
-    async (optimistic, request) => {
-      const before = dataRef.current;
-      if (before) show(optimistic(before));
+  /** Sends the queue in order. `force` ignores the retry backoff (a tap, the connection returning, the app waking up). */
+  const drain = useCallback(
+    async (force = true) => {
+      if (draining.current || !queue.current?.length || (!force && Date.now() < retryAt.current)) return;
+      draining.current = true;
       inFlight.current += 1;
       editSeq.current += 1;
-      let failure = '';
+      setSending(true);
+      let dropped = 0;
+      let finished = true;
       try {
-        await request();
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 401) signedOut.current();
-        failure = err instanceof ApiError && err.status === 0 ? 'Offline: that change was not saved' : 'That change was not saved';
-        if (before) show(before); // undo the instant edit; the sync below then restores whatever the server really has
+        while (queue.current.length > 0) {
+          const op = queue.current[0] as Op;
+          try {
+            await send(api, op);
+          } catch (err) {
+            const status = err instanceof ApiError ? err.status : 0;
+            if (status === 401) {
+              signedOut.current(); // the queue stays: nothing is lost if the sign-in is repaired
+              finished = false;
+              break;
+            }
+            if (isTransient(status)) {
+              failures.current += 1;
+              retryAt.current = Date.now() + Math.min(BACKOFF_MAX_MS, BACKOFF_START_MS * 2 ** (failures.current - 1));
+              if (alive.current) setOffline(status === 0);
+              finished = false;
+              break;
+            }
+            // A 404 on anything but an add means the other person already removed the target: nothing left to do.
+            if (!(status === 404 && op.kind !== 'addItem')) dropped += 1;
+          }
+          failures.current = 0;
+          retryAt.current = 0;
+          if (alive.current) setOffline(false);
+          setQueue(queue.current.slice(1));
+        }
       } finally {
+        draining.current = false;
         inFlight.current -= 1;
         editSeq.current += 1;
+        if (alive.current) setSending(false);
       }
-      await refresh();
-      if (failure && alive.current) setError(failure); // refresh clears errors on success, so say what failed afterwards
+      if (dropped > 0 && alive.current) {
+        // Never restore an old snapshot (that would wipe edits made meanwhile): rebuild from the server's list plus what is still queued.
+        if (server.current) show(applyOps(server.current, queue.current ?? []));
+        setProblem(`${dropped} change${dropped === 1 ? '' : 's'} could not be saved`);
+        setTimeout(() => alive.current && setProblem(''), PROBLEM_MS);
+      }
+      if (finished) await refresh(); // pick up what the server really has, which also repairs any dropped edit on screen
     },
-    [refresh],
+    [api, refresh, householdId],
+  );
+
+  const mutate = useCallback<ListsState['mutate']>(
+    async (optimistic, op) => {
+      if (dataRef.current) show(optimistic(dataRef.current));
+      editSeq.current += 1;
+      setQueue([...(queue.current ?? []), op]);
+      await drain();
+    },
+    [drain, householdId],
   );
 
   useEffect(() => {
     alive.current = true;
     let lastActive = Date.now();
     let ticks = 0;
+    void drain();
     void refresh();
     const touch = () => {
       lastActive = Date.now();
@@ -90,24 +199,36 @@ export function useLists(api: Api, onSignedOut: () => void, householdId?: string
     const tick = () => {
       ticks += 1;
       const idle = Date.now() - lastActive > IDLE_MS;
-      if (document.visibilityState === 'visible' && (!idle || ticks % IDLE_EVERY === 0)) void refresh();
+      if (document.visibilityState === 'visible' && (!idle || ticks % IDLE_EVERY === 0)) {
+        void drain(false);
+        void refresh();
+      }
     };
     const wake = () => {
       touch();
-      if (document.visibilityState === 'visible') void refresh();
+      if (document.visibilityState === 'visible') {
+        void drain();
+        void refresh();
+      }
+    };
+    const online = () => {
+      void drain();
+      void refresh();
     };
     const timer = setInterval(tick, POLL_MS);
     document.addEventListener('visibilitychange', wake);
+    window.addEventListener('online', online);
     document.addEventListener('pointerdown', touch);
     document.addEventListener('keydown', touch);
     return () => {
       alive.current = false;
       clearInterval(timer);
       document.removeEventListener('visibilitychange', wake);
+      window.removeEventListener('online', online);
       document.removeEventListener('pointerdown', touch);
       document.removeEventListener('keydown', touch);
     };
-  }, [refresh]);
+  }, [refresh, drain]);
 
-  return { data, error, mutate, refresh };
+  return { data, error, pending, sending, offline, problem, mutate, refresh };
 }

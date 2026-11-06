@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { createApi, type Api } from './api';
 import { parseJoinCode } from './invite';
+import { clearQueue } from './queue';
 import { clearSnapshot } from './snapshotCache';
 import { clearSession, loadSession, saveSession, type Session } from './session';
 import { Lists } from './Lists';
@@ -16,6 +17,7 @@ export function App() {
   const signOut = () => {
     clearSession();
     clearSnapshot();
+    clearQueue();
     setSession(null);
   };
 
