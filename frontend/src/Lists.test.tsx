@@ -109,7 +109,43 @@ describe('Lists screen', () => {
     await act(() => {
       (root.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     });
-    expect(api.addItem).toHaveBeenCalledWith('c', 'Tea');
+    expect(api.addItem).toHaveBeenCalledWith('c', 'Tea', undefined, expect.stringMatching(/^[0-9a-f]{32}$/));
+  });
+
+  it('shows a just-added item under the id it sent, so it can be ticked off at once', async () => {
+    (api.addItem as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => undefined)); // the server has not answered yet
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await flush();
+    const input = root.querySelector('input') as HTMLInputElement;
+    input.value = 'Tea';
+    await act(() => {
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await click(root.querySelector('[aria-label="Add item"]'));
+    const sentId = (api.addItem as ReturnType<typeof vi.fn>).mock.calls[0]?.[3] as string;
+    const check = root.querySelector('[aria-label="Check off Tea"]') as HTMLButtonElement;
+    expect(check.disabled).toBe(false);
+    await click(check);
+    expect(api.updateItem).toHaveBeenCalledWith(sentId, { checked: true });
+    expect(root.querySelector('[aria-label="Delete Tea"]')).toBeNull(); // it moved to the in-cart section
+  });
+
+  it('adds a store under a client id and selects it at once', async () => {
+    (api.addStore as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => undefined));
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await flush();
+    await click(root.querySelector('[aria-label="Add a store"]'));
+    const box = root.querySelector('input[placeholder="Store name"]') as HTMLInputElement;
+    box.value = 'Aldi';
+    await act(() => {
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(() => {
+      box.form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    expect(api.addStore).toHaveBeenCalledWith('Aldi', expect.stringMatching(/^[0-9a-f]{32}$/));
+    const selected = root.querySelector('[role="tab"][aria-selected="true"]');
+    expect(selected?.textContent).toBe('Aldi');
   });
 
   it('adds an item when the plus button is tapped', async () => {
@@ -121,7 +157,7 @@ describe('Lists screen', () => {
       input.dispatchEvent(new Event('input', { bubbles: true }));
     });
     await click(root.querySelector('[aria-label="Add item"]'));
-    expect(api.addItem).toHaveBeenCalledWith('c', 'Tea');
+    expect(api.addItem).toHaveBeenCalledWith('c', 'Tea', undefined, expect.stringMatching(/^[0-9a-f]{32}$/));
   });
 
   it('focuses the field instead of adding when ＋ is tapped with nothing typed', async () => {
@@ -198,7 +234,7 @@ describe('Lists screen', () => {
     const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
     await flush();
     await click(chip(root, 'Add Bananas'));
-    expect(api.addItem).toHaveBeenCalledWith('c', 'Bananas');
+    expect(api.addItem).toHaveBeenCalledWith('c', 'Bananas', undefined, expect.stringMatching(/^[0-9a-f]{32}$/));
   });
 
   it('narrows the chips as you type, and hides Edit while typing', async () => {
@@ -238,7 +274,7 @@ describe('Lists screen', () => {
       input.dispatchEvent(new Event('input', { bubbles: true }));
     });
     await click(chip(root, 'Add Bananas'));
-    expect(api.addItem).toHaveBeenCalledWith('c', 'Bananas');
+    expect(api.addItem).toHaveBeenCalledWith('c', 'Bananas', undefined, expect.stringMatching(/^[0-9a-f]{32}$/));
     expect(api.setFrequent).not.toHaveBeenCalled();
   });
 

@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Api } from './api';
-import { forStore, pickStore, suggestionsFor, withChecked, withNewItem, withoutChecked, withoutFrequent, withoutItem, withPinned } from './listState';
+import { forStore, pickStore, suggestionsFor, withChecked, withNewItem, withNewStore, withoutChecked, withoutFrequent, withoutItem, withPinned } from './listState';
+import { newId } from './ids';
 import type { Session } from './session';
 import { ScanSheet } from './ScanSheet';
 import type { ListsState } from './useLists';
 
 const LAST_STORE = 'grocery.store';
-let tempCount = 0; // gives each not-yet-saved item a unique placeholder id
 
 function remembered(): string | null {
   try {
@@ -80,9 +80,10 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
     const clean = name.trim();
     if (!clean || !storeId) return;
     setText('');
+    const id = newId();
     void mutate(
-      (d) => withNewItem(d, `tmp-${++tempCount}`, storeId, clean, session.deviceName),
-      () => api.addItem(storeId, clean),
+      (d) => withNewItem(d, id, storeId, clean, session.deviceName),
+      () => api.addItem(storeId, clean, undefined, id),
     );
   };
 
@@ -96,9 +97,11 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
     const name = storeName.trim();
     if (!name) return;
     closeStoreForm();
+    const id = newId();
+    choose(id);
     await mutate(
-      (d) => d,
-      async () => choose((await api.addStore(name)).id),
+      (d) => withNewStore(d, id, name),
+      () => api.addStore(name, id),
     );
   };
 
@@ -214,7 +217,6 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
                 <button
                   type="button"
                   class="ck"
-                  disabled={item.id.startsWith('tmp-')}
                   aria-label={`Check off ${item.name}`}
                   onClick={() => void mutate((d) => withChecked(d, item.id, true), () => api.updateItem(item.id, { checked: true }))}
                 />
@@ -226,7 +228,6 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
                 <button
                   type="button"
                   class="x"
-                  disabled={item.id.startsWith('tmp-')}
                   aria-label={`Delete ${item.name}`}
                   onClick={() => void mutate((d) => withoutItem(d, item.id), () => api.deleteItem(item.id))}
                 >

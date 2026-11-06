@@ -6,6 +6,7 @@ import {
   suggestionsFor,
   withChecked,
   withNewItem,
+  withNewStore,
   withoutChecked,
   withoutFrequent,
   withoutItem,
@@ -39,7 +40,8 @@ describe('list state', () => {
   });
 
   it('applies instant edits without touching the original', () => {
-    expect(withNewItem(data, 'tmp', 'c', 'Tea', 'Yaso').items.at(-1)).toMatchObject({ id: 'tmp', name: 'Tea', addedBy: 'Yaso', checked: false });
+    expect(withNewItem(data, 'abc123abc123', 'c', 'Tea', 'Yaso').items.at(-1)).toMatchObject({ id: 'abc123abc123', name: 'Tea', addedBy: 'Yaso', checked: false });
+    expect(withNewStore(data, 'abc123abc123', 'Aldi').stores.at(-1)).toEqual({ id: 'abc123abc123', name: 'Aldi', order: 2 });
     expect(withChecked(data, 'milk', true).items[0]?.checked).toBe(true);
     expect(withoutItem(data, 'milk').items.map((i) => i.id)).toEqual(['eggs', 'rice']);
     expect(withoutChecked(data, 'c').items.map((i) => i.id)).toEqual(['milk', 'rice']);

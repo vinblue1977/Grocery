@@ -11,9 +11,14 @@ export function pickStore(stores: Store[], wanted: string | null): string | null
   return stores.find((store) => store.id === wanted)?.id ?? stores[0]?.id ?? null;
 }
 
-export function withNewItem(data: Snapshot, tempId: string, storeId: string, name: string, addedBy: string): Snapshot {
-  const item: Item = { id: tempId, storeId, name, note: '', checked: false, addedBy, updatedAt: Date.now() };
+export function withNewItem(data: Snapshot, id: string, storeId: string, name: string, addedBy: string): Snapshot {
+  const item: Item = { id, storeId, name, note: '', checked: false, addedBy, updatedAt: Date.now() };
   return { ...data, items: [...data.items, item] };
+}
+
+export function withNewStore(data: Snapshot, id: string, name: string): Snapshot {
+  const order = data.stores.reduce((most, s) => Math.max(most, s.order), -1) + 1;
+  return { ...data, stores: [...data.stores, { id, name, order }] };
 }
 
 export function withChecked(data: Snapshot, id: string, checked: boolean): Snapshot {
