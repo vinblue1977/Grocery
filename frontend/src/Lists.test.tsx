@@ -125,6 +125,57 @@ describe('Lists screen', () => {
     expect(document.activeElement).toBe(root.querySelector('input'));
   });
 
+  it('closes the new-store box with Cancel without adding a store', async () => {
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await flush();
+    await click(root.querySelector('[aria-label="Add a store"]'));
+    const box = root.querySelector('input[placeholder="Store name"]') as HTMLInputElement;
+    expect(box).not.toBeNull();
+    expect(document.activeElement).toBe(box);
+    await click(Array.from(root.querySelectorAll('button')).find((b) => b.textContent === 'Cancel') ?? null);
+    expect(root.querySelector('input[placeholder="Store name"]')).toBeNull();
+    expect(api.addStore).not.toHaveBeenCalled();
+  });
+
+  it('closes the new-store box with Escape or the ＋ tab and forgets what was typed', async () => {
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await flush();
+    const plus = root.querySelector('[aria-label="Add a store"]');
+    const find = () => root.querySelector('input[placeholder="Store name"]') as HTMLInputElement | null;
+    const type = async (text: string) => {
+      const box = find() as HTMLInputElement;
+      box.value = text;
+      await act(() => {
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    };
+    await click(plus);
+    await type('Costc');
+    await act(() => {
+      find()?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(find()).toBeNull();
+    await click(plus);
+    expect(find()?.value).toBe('');
+    await type('Aldi');
+    await click(plus); // tapping ＋ again closes it too
+    expect(find()).toBeNull();
+    await click(plus);
+    expect(find()?.value).toBe('');
+    expect(api.addStore).not.toHaveBeenCalled();
+  });
+
+  it('does not steal focus back to the new-store box when the list refreshes', async () => {
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await flush();
+    await click(root.querySelector('[aria-label="Add a store"]'));
+    const item = root.querySelector('[aria-label^="Add item to"], input:not([placeholder="Store name"])') as HTMLInputElement;
+    item.focus();
+    await click(root.querySelector('[aria-label="Check off Milk"]')); // optimistic update plus refresh re-render the screen
+    await flush();
+    expect(document.activeElement).not.toBe(root.querySelector('input[placeholder="Store name"]'));
+  });
+
   it('deletes an item and clears the cart', async () => {
     const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
     await flush();
