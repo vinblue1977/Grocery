@@ -164,18 +164,86 @@ describe('useLists', () => {
     expect(api.sync).toHaveBeenCalledTimes(3); // one re-sync after the edit
   });
 
-  it('reports a failed edit and re-syncs to repair the screen', async () => {
+  it('keeps the error visible after a failed edit, undoes it on screen and re-syncs', async () => {
     let state: ListsState | undefined;
     const Probe = () => {
       state = useLists(api, vi.fn());
-      return <p>{state.error}</p>;
+      return (
+        <p>
+          {state.error}|{state.data?.items.length}
+        </p>
+      );
     };
     const root = mount(<Probe />);
     await flush();
+    expect(root.textContent).toBe('|3');
     await act(async () => {
-      await state?.mutate((d) => d, () => Promise.reject(new ApiError(500, 'boom')));
+      await state?.mutate(
+        (d) => ({ ...d, items: [] }),
+        () => Promise.reject(new ApiError(500, 'boom')),
+      );
     });
-    expect(root.textContent).toBe('');
+    expect(root.textContent).toBe('That change was not saved|3'); // edit undone, message kept
     expect(api.sync).toHaveBeenCalledTimes(2);
+  });
+
+  it('undoes an edit that failed offline even though the re-sync also fails', async () => {
+    let state: ListsState | undefined;
+    const Probe = () => {
+      state = useLists(api, vi.fn());
+      return (
+        <p>
+          {state.error}|{state.data?.items.length}
+        </p>
+      );
+    };
+    const root = mount(<Probe />);
+    await flush();
+    api.sync = vi.fn().mockRejectedValue(new ApiError(0, 'No connection'));
+    await act(async () => {
+      await state?.mutate(
+        (d) => ({ ...d, items: [] }),
+        () => Promise.reject(new ApiError(0, 'No connection')),
+      );
+    });
+    expect(root.textContent).toBe('Offline: that change was not saved|3');
+  });
+
+  it('discards a slow sync that finished after an edit', async () => {
+    let state: ListsState | undefined;
+    const Probe = () => {
+      state = useLists(api, vi.fn());
+      return <p>{state.data?.items.length}</p>;
+    };
+    const root = mount(<Probe />);
+    await flush();
+    let release: (s: Snapshot) => void = () => undefined;
+    api.sync = vi.fn().mockReturnValueOnce(new Promise<Snapshot>((resolve) => (release = resolve)));
+    const slowPoll = state?.refresh();
+    await act(async () => {
+      await state?.mutate((d) => ({ ...d, items: [] }), () => Promise.resolve());
+    });
+    api.sync = vi.fn().mockResolvedValue({ ...snapshot(), items: [] });
+    release(snapshot()); // the old, pre-edit snapshot arrives last
+    await act(async () => {
+      await slowPoll;
+    });
+    expect(root.textContent).not.toBe('3');
+  });
+
+  it('slows polling to every 30 seconds when the app sits idle', async () => {
+    vi.useFakeTimers();
+    mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2 * 60 * 1000 + 5000);
+    });
+    const afterActive = (api.sync as ReturnType<typeof vi.fn>).mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60 * 1000);
+    });
+    expect((api.sync as ReturnType<typeof vi.fn>).mock.calls.length - afterActive).toBeLessThanOrEqual(3); // ~2 polls a minute, not 12
   });
 });

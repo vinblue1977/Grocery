@@ -5,6 +5,7 @@ import type { Session } from './session';
 import type { ListsState } from './useLists';
 
 const LAST_STORE = 'grocery.store';
+let tempCount = 0; // gives each not-yet-saved item a unique placeholder id
 
 function remembered(): string | null {
   try {
@@ -46,7 +47,7 @@ export function Lists({ api, lists, session }: Props) {
     if (!clean || !storeId) return;
     setText('');
     void mutate(
-      (d) => withNewItem(d, `tmp-${Date.now()}`, storeId, clean, session.deviceName),
+      (d) => withNewItem(d, `tmp-${++tempCount}`, storeId, clean, session.deviceName),
       () => api.addItem(storeId, clean),
     );
   };
@@ -114,6 +115,7 @@ export function Lists({ api, lists, session }: Props) {
                 <button
                   type="button"
                   class="ck"
+                  disabled={item.id.startsWith('tmp-')}
                   aria-label={`Check off ${item.name}`}
                   onClick={() => void mutate((d) => withChecked(d, item.id, true), () => api.updateItem(item.id, { checked: true }))}
                 />
@@ -125,6 +127,7 @@ export function Lists({ api, lists, session }: Props) {
                 <button
                   type="button"
                   class="x"
+                  disabled={item.id.startsWith('tmp-')}
                   aria-label={`Delete ${item.name}`}
                   onClick={() => void mutate((d) => withoutItem(d, item.id), () => api.deleteItem(item.id))}
                 >

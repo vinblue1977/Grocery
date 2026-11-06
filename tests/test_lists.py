@@ -141,3 +141,64 @@ def test_lists_need_sign_in(table):
     create()
     assert call("GET", "/sync")[0] == 401
     assert call("POST", "/items", {"storeId": "x", "name": "y"})[0] == 401
+
+
+def test_editing_a_deleted_item_or_store_does_not_bring_it_back(me):
+    costco = store_id(me, "Costco")
+    item = add(me, costco, "Milk")
+    assert call("DELETE", f"/items/{item['id']}", token=me["token"])[0] == 204
+    assert call("PATCH", f"/items/{item['id']}", {"checked": True}, me["token"])[0] == 404
+    assert call("DELETE", f"/stores/{costco}", token=me["token"])[0] == 204
+    assert call("PATCH", f"/stores/{costco}", {"name": "Back again"}, me["token"])[0] == 404
+    assert sync(me)["items"] == []
+    assert "Costco" not in [s["name"] for s in sync(me)["stores"]]
+
+
+def test_checking_an_item_keeps_a_concurrent_note_edit(me):
+    item = add(me, store_id(me, "Costco"), "Milk")
+    call("PATCH", f"/items/{item['id']}", {"note": "whole"}, me["token"])
+    call("PATCH", f"/items/{item['id']}", {"checked": True}, me["token"])
+    assert sync(me)["items"][0] | {"updatedAt": 0} == {**item, "note": "whole", "checked": True, "updatedAt": 0}
+
+
+def test_adding_to_a_store_deleted_a_moment_ago_fails_cleanly(me):
+    costco = store_id(me, "Costco")
+    call("DELETE", f"/stores/{costco}", token=me["token"])
+    assert call("POST", "/items", {"storeId": costco, "name": "Late"}, me["token"])[0] == 404
+    assert table_item_count(me) == 0
+
+
+def table_item_count(me) -> int:
+    from api.handler import get_table
+
+    return len([r for r in get_table().scan()["Items"] if r["SK"].startswith("ITEM#")])
+
+
+def test_orphaned_items_never_show(me):
+    from api.handler import get_table
+
+    sync(me)
+    get_table().put_item(
+        Item={
+            "PK": f"H#{me['householdId']}",
+            "SK": "ITEM#ghost",
+            "id": "ghost",
+            "storeId": "gone",
+            "name": "x",
+            "checked": False,
+            "addedBy": "V",
+            "updatedAt": 1,
+        }
+    )
+    assert sync(me)["items"] == []
+
+
+def test_seeding_twice_creates_one_set_of_stores(me):
+    from api import lists
+    from api.handler import get_table
+    from api.households import Session
+
+    session = Session(me["householdId"], me["deviceId"])
+    lists._seed_defaults(get_table(), session)
+    lists._seed_defaults(get_table(), session)  # a concurrent first sync: the second one loses the marker race and adds nothing
+    assert [s["name"] for s in sync(me)["stores"]] == ["Costco", "Patel", "Butcher"]
