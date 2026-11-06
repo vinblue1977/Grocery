@@ -17,8 +17,9 @@ export interface ListsState {
   sending: boolean;
   /** True when the last request failed for lack of a connection. */
   offline: boolean;
-  /** A one-shot message about edits the server refused, e.g. "1 change could not be saved". */
+  /** A message about edits that could not be saved, e.g. "1 change could not be saved"; stays until dismissed. */
   problem: string;
+  dismissProblem(): void;
   /** Applies `optimistic` to the screen at once, queues `op` and sends the queue in order as soon as there is a connection. */
   mutate(optimistic: (data: Snapshot) => Snapshot, op: Op): Promise<void>;
   refresh(): Promise<void>;
@@ -26,8 +27,10 @@ export interface ListsState {
 
 const BACKOFF_START_MS = 2000;
 const BACKOFF_MAX_MS = 60000;
-const PROBLEM_MS = 8000;
-const MAX_ATTEMPTS = 6; // a server answer (not 'offline') that keeps failing this many times in a row drops the edit
+// A server error (not 'busy') drops the edit only after this many attempts AND this long, so taps and 'online' events that skip the
+// backoff can't use the budget up in seconds, and a short outage never loses an edit.
+const MAX_ATTEMPTS = 10;
+const GIVE_UP_MS = 15 * 60 * 1000;
 
 function send(api: Api, op: Op): Promise<unknown> {
   switch (op.kind) {
@@ -50,8 +53,10 @@ function send(api: Api, op: Op): Promise<unknown> {
   }
 }
 
-/** Offline, a server hiccup or a busy server: the edit is fine and will work later. */
-const isTransient = (status: number) => status === 0 || status === 408 || status === 429 || status >= 500;
+/** Offline, or the server is busy: the edit is fine, so keep retrying however long it takes (the backoff slows it down). */
+const isBusy = (status: number) => status === 0 || status === 408 || status === 429 || status === 503;
+/** A server error that may be this edit's fault (or a crash it causes): retry, but give up eventually. */
+const isSuspect = (status: number) => status >= 500 && status !== 503;
 
 /**
  * Keeps the household's lists in sync: fetches on open and every 5 s while the app is visible and in use (every 30 s when
@@ -79,8 +84,7 @@ export function useLists(api: Api, onSignedOut: () => void, householdId?: string
   const inFlight = useRef(0);
   const alive = useRef(true);
   const gen = useRef(0); // bumps on unmount, so a send that resolves late can't save or send anything more
-  const attempts = useRef<{ op: Op | null; count: number }>({ op: null, count: 0 }); // failed server answers for the op at the front
-  const problemTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const attempts = useRef<{ op: Op | null; count: number; since: number }>({ op: null, count: 0, since: 0 }); // failed server answers for the op at the front
   const draining = useRef(false); // one drain loop at a time, so ops are never sent twice or out of order
   const failures = useRef(0);
   const retryAt = useRef(0); // earliest time a timer-driven drain may try again after a transient failure
@@ -149,32 +153,36 @@ export function useLists(api: Api, onSignedOut: () => void, householdId?: string
             if (server.current) server.current = applyOp(server.current, op); // confirmed: it belongs to the base list now
           } catch (err) {
             if (stale()) break;
-            if (!(err instanceof ApiError)) {
-              drop = true; // a bug or bad data, not the network: retrying would never help
-            } else if (err.status === 401) {
+            const status = err instanceof ApiError ? err.status : -1;
+            if (status === 401) {
               signedOut.current(); // sign-out clears the queue; a revoked device could not send it anyway
               break;
-            } else if (isTransient(err.status)) {
-              if (err.status !== 0) {
-                attempts.current = { op, count: (attempts.current.op === op ? attempts.current.count : 0) + 1 };
+            }
+            if (isBusy(status) || isSuspect(status)) {
+              if (isSuspect(status)) {
+                const a = attempts.current.op === op ? attempts.current : { op, count: 0, since: Date.now() };
+                attempts.current = { ...a, count: a.count + 1 };
+              } else {
+                attempts.current = { op: null, count: 0, since: 0 }; // busy or offline ends the run: only consecutive errors count
               }
-              if (attempts.current.op === op && attempts.current.count >= MAX_ATTEMPTS) {
-                drop = true; // the server keeps failing on this one edit; don't let it block the rest forever
+              const a = attempts.current;
+              if (a.op === op && a.count >= MAX_ATTEMPTS && Date.now() - a.since >= GIVE_UP_MS) {
+                drop = true; // it keeps failing on this one edit; don't let it block the rest forever
               } else {
                 failures.current += 1;
                 retryAt.current = Date.now() + Math.min(BACKOFF_MAX_MS, BACKOFF_START_MS * 2 ** (failures.current - 1));
-                setOffline(err.status === 0);
+                setOffline(status === 0);
                 break;
               }
             } else {
-              drop = true;
+              drop = true; // refused (a 4xx), or an error that is not a server answer at all (a bug): retrying would never help
             }
             // A 404 on anything but an add means the other person already removed the target: nothing left to do.
-            if (drop && !(err instanceof ApiError && err.status === 404 && op.kind !== 'addItem')) dropped += 1;
+            if (drop && !(status === 404 && op.kind !== 'addItem')) dropped += 1;
           }
           failures.current = 0;
           retryAt.current = 0;
-          attempts.current = { op: null, count: 0 };
+          attempts.current = { op: null, count: 0, since: 0 };
           if (!drop) setOffline(false);
           setQueue(queue.current.slice(1));
           removed += 1;
@@ -193,8 +201,6 @@ export function useLists(api: Api, onSignedOut: () => void, householdId?: string
       }
       if (dropped > 0) {
         setProblem(`${dropped} change${dropped === 1 ? '' : 's'} could not be saved`);
-        clearTimeout(problemTimer.current);
-        problemTimer.current = setTimeout(() => alive.current && setProblem(''), PROBLEM_MS);
       }
       if (removed > 0) await refresh(); // pick up what the server really has; if offline the screen is already right
     },
@@ -249,7 +255,6 @@ export function useLists(api: Api, onSignedOut: () => void, householdId?: string
     return () => {
       alive.current = false;
       gen.current += 1;
-      clearTimeout(problemTimer.current);
       setPendingCount(0);
       clearInterval(timer);
       document.removeEventListener('visibilitychange', wake);
@@ -259,5 +264,7 @@ export function useLists(api: Api, onSignedOut: () => void, householdId?: string
     };
   }, [refresh, drain]);
 
-  return { data, error, pending, sending, offline, problem, mutate, refresh };
+  const dismissProblem = useCallback(() => setProblem(''), []);
+
+  return { data, error, pending, sending, offline, problem, dismissProblem, mutate, refresh };
 }
