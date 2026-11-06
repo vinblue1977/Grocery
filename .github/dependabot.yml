@@ -31,6 +31,9 @@ updates:
       # cdk-nag 3 replaces the suppression API (experimental, no grouped acknowledgments yet).
       - dependency-name: cdk-nag
         versions: [">=3.0.0"]
+      # botocore (boto3) requires python-dateutil <3.
+      - dependency-name: python-dateutil
+        versions: [">=3.0.0"]
   # The CDK CLI that deploys and pyright (package.json).
   - package-ecosystem: npm
     directory: /
