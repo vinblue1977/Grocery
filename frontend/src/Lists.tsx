@@ -170,7 +170,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
               placeholder={`Add item to ${data.stores.find((s) => s.id === storeId)?.name ?? ''}…`}
               onInput={(e) => setText(e.currentTarget.value)}
             />
-            <button type="button" class="camera" aria-label="Add from a photo of a paper list" disabled={offline} onClick={() => picker.current?.click()}>
+            <button type="button" class="camera" aria-label="Add from a photo of a paper list" disabled={offline || pending > 0} onClick={() => picker.current?.click()}>
               <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
                 <circle cx="12" cy="13" r="3.5" />
@@ -181,7 +181,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
             </button>
           </form>
 
-          {offline && <small class="muted">Photo scan needs a connection.</small>}
+          {(offline || pending > 0) && <small class="muted">{offline ? 'Photo scan needs a connection.' : 'Photo scan waits until your changes are sent.'}</small>}
 
           {(often.length > 0 || editing) && (
             <section aria-label="Often bought">

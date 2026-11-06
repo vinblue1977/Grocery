@@ -3,7 +3,7 @@ import { act } from 'preact/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type Api, type Snapshot } from './api';
 import { Lists } from './Lists';
-import { loadQueue, saveQueue } from './queue';
+import { loadQueue, pendingCount, saveQueue } from './queue';
 import { clearSnapshot, saveSnapshot } from './snapshotCache';
 import { useLists, type ListsState } from './useLists';
 
@@ -137,7 +137,7 @@ describe('edit queue in useLists', () => {
     expect(root.textContent).toBe('Milk|0|');
   });
 
-  it('keeps the queue and signs out on 401', async () => {
+  it('signs out on 401 and sends nothing more', async () => {
     const api = fake({ addItem: vi.fn().mockRejectedValue(new ApiError(401, 'no')) });
     const root = mount(api);
     await settle();
@@ -204,6 +204,115 @@ describe('edit queue in useLists', () => {
   });
 });
 
+describe('edit queue safeguards', () => {
+  it('drops an edit the server keeps failing on after 6 attempts, but never counts being offline', async () => {
+    const addItem = vi.fn().mockRejectedValue(new ApiError(500, 'boom'));
+    const api = fake({ addItem, deleteItem: vi.fn().mockRejectedValue(offlineError()) });
+    const root = mount(api);
+    await settle();
+    await act(async () => {
+      await add('i1', 'Tea');
+    });
+    for (let i = 0; i < 4; i++) {
+      goOnline();
+      await settle();
+    }
+    expect(state.pending).toBe(1); // 5 failed attempts so far
+    goOnline();
+    await settle();
+    expect(addItem).toHaveBeenCalledTimes(6);
+    expect(root.textContent).toBe('Milk|0|1 change could not be saved');
+
+    for (let i = 0; i < 10; i++) {
+      await act(async () => {
+        await state.mutate((d) => d, { kind: 'deleteItem', id: 'milk' });
+      });
+    }
+    expect(state.pending).toBe(10); // offline attempts never drop anything
+  });
+
+  it('treats an error that is not an ApiError as a permanent failure, not as offline', async () => {
+    const api = fake({ addItem: vi.fn().mockRejectedValue(new TypeError('bad')) });
+    const root = mount(api);
+    await settle();
+    await act(async () => {
+      await add('i1', 'Tea');
+    });
+    expect(state.offline).toBe(false);
+    expect(root.textContent).toBe('Milk|0|1 change could not be saved');
+  });
+
+  it('does not send or save anything more when a send resolves after unmount', async () => {
+    let land: () => void = () => undefined;
+    const addItem = vi.fn().mockImplementation(() => new Promise((resolve) => (land = () => resolve({}))));
+    const api = fake({ addItem, updateItem: vi.fn().mockResolvedValue({}) });
+    const root = mount(api);
+    await settle();
+    void add('i1', 'Tea');
+    void state.mutate((d) => d, { kind: 'updateItem', id: 'i1', changes: { checked: true } });
+    await settle();
+    act(() => {
+      render(null, root);
+    });
+    localStorage.clear(); // what sign-out does
+    land();
+    await settle();
+    expect(api.updateItem).not.toHaveBeenCalled();
+    expect(loadQueue('h1')).toEqual([]);
+  });
+
+  it('keeps confirmed edits visible when a later edit is refused or fails, even if the re-sync fails offline', async () => {
+    clearSnapshot();
+    saveSnapshot('h1', snap());
+    saveQueue('h1', [
+      { kind: 'addItem', id: 'a', storeId: 'c', name: 'A' },
+      { kind: 'addItem', id: 'b', storeId: 'c', name: 'B' },
+      { kind: 'addItem', id: 'c3', storeId: 'c', name: 'C' },
+      { kind: 'updateItem', id: 'milk', changes: { checked: true } },
+    ]);
+    const addItem = vi.fn().mockImplementation((_s: string, name: string) => (name === 'C' ? Promise.reject(new ApiError(400, 'no')) : Promise.resolve({})));
+    const api = fake({ addItem, updateItem: vi.fn().mockRejectedValue(new ApiError(500, 'boom')), sync: vi.fn().mockRejectedValue(offlineError()) });
+    const root = mount(api);
+    await settle();
+    expect(root.textContent).toBe('Milk*,A,B|1|1 change could not be saved');
+    expect(api.sync).toHaveBeenCalled(); // re-synced once the drain ended
+  });
+
+  it('restarts the message timer when a new problem arrives', async () => {
+    const api = fake({ addItem: vi.fn().mockRejectedValue(new ApiError(400, 'no')) });
+    const root = mount(api);
+    await settle();
+    vi.useFakeTimers();
+    await act(async () => {
+      await add('i1', 'A');
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+      await add('i2', 'B');
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(root.textContent).toContain('could not be saved'); // 10 s in, but the second problem restarted the 8 s clock
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    expect(root.textContent).not.toContain('could not be saved');
+  });
+
+  it('reports the waiting count to the service-worker updater and zeroes it on unmount', async () => {
+    const api = fake({ addItem: vi.fn().mockRejectedValue(offlineError()) });
+    const root = mount(api);
+    await settle();
+    await act(async () => {
+      await add('i1', 'Tea');
+    });
+    expect(pendingCount()).toBe(1);
+    act(() => {
+      render(null, root);
+    });
+    expect(pendingCount()).toBe(0);
+  });
+});
+
 describe('Lists status line', () => {
   const screen = (api: Api) => {
     const root = document.createElement('div');
@@ -242,6 +351,17 @@ describe('Lists status line', () => {
     await settle();
     expect(root.querySelector('[role="status"]')).toBeNull();
     expect((root.querySelector('.camera') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('disables the camera with a hint while changes are waiting, even online', async () => {
+    clearSnapshot();
+    saveSnapshot('h1', snap());
+    saveQueue('h1', [{ kind: 'deleteItem', id: 'milk' }]);
+    const api = fake({ deleteItem: vi.fn().mockReturnValue(new Promise(() => undefined)) });
+    const root = screen(api);
+    await settle();
+    expect((root.querySelector('.camera') as HTMLButtonElement).disabled).toBe(true);
+    expect(root.textContent).toContain('Photo scan waits until your changes are sent.');
   });
 
   it('forgets a remembered new store whose creation was refused', async () => {

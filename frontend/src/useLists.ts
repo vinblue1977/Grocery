@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { ApiError, type Api, type Snapshot } from './api';
-import { applyOps } from './listState';
+import { applyOp, applyOps } from './listState';
 import { loadQueue, saveQueue, setPendingCount, type Op } from './queue';
 import { loadSnapshot, saveSnapshot } from './snapshotCache';
 
@@ -27,6 +27,7 @@ export interface ListsState {
 const BACKOFF_START_MS = 2000;
 const BACKOFF_MAX_MS = 60000;
 const PROBLEM_MS = 8000;
+const MAX_ATTEMPTS = 6; // a server answer (not 'offline') that keeps failing this many times in a row drops the edit
 
 function send(api: Api, op: Op): Promise<unknown> {
   switch (op.kind) {
@@ -77,6 +78,9 @@ export function useLists(api: Api, onSignedOut: () => void, householdId?: string
   const server = useRef<Snapshot | null>(householdId ? loadSnapshot(householdId) : null); // last list the server sent, without queued edits
   const inFlight = useRef(0);
   const alive = useRef(true);
+  const gen = useRef(0); // bumps on unmount, so a send that resolves late can't save or send anything more
+  const attempts = useRef<{ op: Op | null; count: number }>({ op: null, count: 0 }); // failed server answers for the op at the front
+  const problemTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const draining = useRef(false); // one drain loop at a time, so ops are never sent twice or out of order
   const failures = useRef(0);
   const retryAt = useRef(0); // earliest time a timer-driven drain may try again after a transient failure
@@ -85,7 +89,6 @@ export function useLists(api: Api, onSignedOut: () => void, householdId?: string
   // Callers pass a fresh function every render; holding it in a ref keeps `refresh` stable so the polling effect runs once.
   const signedOut = useRef(onSignedOut);
   signedOut.current = onSignedOut;
-  setPendingCount(queue.current.length);
 
   const show = (next: Snapshot | null) => {
     dataRef.current = next;
@@ -94,7 +97,7 @@ export function useLists(api: Api, onSignedOut: () => void, householdId?: string
 
   const setQueue = (ops: Op[]) => {
     queue.current = ops;
-    if (householdId) saveQueue(householdId, ops);
+    if (householdId && alive.current) saveQueue(householdId, ops); // never re-save after sign-out or unmount
     setPendingCount(ops.length);
     if (alive.current) setPending(ops.length);
   };
@@ -125,39 +128,56 @@ export function useLists(api: Api, onSignedOut: () => void, householdId?: string
   /** Sends the queue in order. `force` ignores the retry backoff (a tap, the connection returning, the app waking up). */
   const drain = useCallback(
     async (force = true) => {
-      if (draining.current || !queue.current?.length || (!force && Date.now() < retryAt.current)) return;
+      if (!alive.current || draining.current || !queue.current?.length || (!force && Date.now() < retryAt.current)) return;
       draining.current = true;
       inFlight.current += 1;
       editSeq.current += 1;
       setSending(true);
+      const mine = gen.current;
+      const stale = () => !alive.current || mine !== gen.current;
       let dropped = 0;
-      let finished = true;
+      let sent = 0;
+      let removed = 0; // ops that left the queue for any reason
       try {
         while (queue.current.length > 0) {
           const op = queue.current[0] as Op;
+          let drop = false;
           try {
             await send(api, op);
+            if (stale()) break;
+            sent += 1;
+            if (server.current) server.current = applyOp(server.current, op); // confirmed: it belongs to the base list now
           } catch (err) {
-            const status = err instanceof ApiError ? err.status : 0;
-            if (status === 401) {
-              signedOut.current(); // the queue stays: nothing is lost if the sign-in is repaired
-              finished = false;
+            if (stale()) break;
+            if (!(err instanceof ApiError)) {
+              drop = true; // a bug or bad data, not the network: retrying would never help
+            } else if (err.status === 401) {
+              signedOut.current(); // sign-out clears the queue; a revoked device could not send it anyway
               break;
-            }
-            if (isTransient(status)) {
-              failures.current += 1;
-              retryAt.current = Date.now() + Math.min(BACKOFF_MAX_MS, BACKOFF_START_MS * 2 ** (failures.current - 1));
-              if (alive.current) setOffline(status === 0);
-              finished = false;
-              break;
+            } else if (isTransient(err.status)) {
+              if (err.status !== 0) {
+                attempts.current = { op, count: (attempts.current.op === op ? attempts.current.count : 0) + 1 };
+              }
+              if (attempts.current.op === op && attempts.current.count >= MAX_ATTEMPTS) {
+                drop = true; // the server keeps failing on this one edit; don't let it block the rest forever
+              } else {
+                failures.current += 1;
+                retryAt.current = Date.now() + Math.min(BACKOFF_MAX_MS, BACKOFF_START_MS * 2 ** (failures.current - 1));
+                setOffline(err.status === 0);
+                break;
+              }
+            } else {
+              drop = true;
             }
             // A 404 on anything but an add means the other person already removed the target: nothing left to do.
-            if (!(status === 404 && op.kind !== 'addItem')) dropped += 1;
+            if (drop && !(err instanceof ApiError && err.status === 404 && op.kind !== 'addItem')) dropped += 1;
           }
           failures.current = 0;
           retryAt.current = 0;
-          if (alive.current) setOffline(false);
+          attempts.current = { op: null, count: 0 };
+          if (!drop) setOffline(false);
           setQueue(queue.current.slice(1));
+          removed += 1;
         }
       } finally {
         draining.current = false;
@@ -165,13 +185,18 @@ export function useLists(api: Api, onSignedOut: () => void, householdId?: string
         editSeq.current += 1;
         if (alive.current) setSending(false);
       }
-      if (dropped > 0 && alive.current) {
-        // Never restore an old snapshot (that would wipe edits made meanwhile): rebuild from the server's list plus what is still queued.
-        if (server.current) show(applyOps(server.current, queue.current ?? []));
-        setProblem(`${dropped} change${dropped === 1 ? '' : 's'} could not be saved`);
-        setTimeout(() => alive.current && setProblem(''), PROBLEM_MS);
+      if (stale()) return;
+      // Never restore an old snapshot (that would wipe edits made meanwhile): rebuild from the server's list plus what is still queued.
+      if (server.current && removed > 0) {
+        show(applyOps(server.current, queue.current ?? []));
+        if (householdId && sent > 0) saveSnapshot(householdId, server.current);
       }
-      if (finished) await refresh(); // pick up what the server really has, which also repairs any dropped edit on screen
+      if (dropped > 0) {
+        setProblem(`${dropped} change${dropped === 1 ? '' : 's'} could not be saved`);
+        clearTimeout(problemTimer.current);
+        problemTimer.current = setTimeout(() => alive.current && setProblem(''), PROBLEM_MS);
+      }
+      if (removed > 0) await refresh(); // pick up what the server really has; if offline the screen is already right
     },
     [api, refresh, householdId],
   );
@@ -188,6 +213,7 @@ export function useLists(api: Api, onSignedOut: () => void, householdId?: string
 
   useEffect(() => {
     alive.current = true;
+    setPendingCount(queue.current?.length ?? 0); // the queue restored from before a restart
     let lastActive = Date.now();
     let ticks = 0;
     void drain();
@@ -222,6 +248,9 @@ export function useLists(api: Api, onSignedOut: () => void, householdId?: string
     document.addEventListener('keydown', touch);
     return () => {
       alive.current = false;
+      gen.current += 1;
+      clearTimeout(problemTimer.current);
+      setPendingCount(0);
       clearInterval(timer);
       document.removeEventListener('visibilitychange', wake);
       window.removeEventListener('online', online);

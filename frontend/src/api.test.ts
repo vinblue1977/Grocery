@@ -17,6 +17,23 @@ describe('api', () => {
     expect(init.body).toBe(JSON.stringify({ code: 'CODE1234', deviceName: 'Yaso' }));
   });
 
+  it('cuts off a request that hangs and reports it as offline (status 0)', async () => {
+    vi.useFakeTimers();
+    const hang = vi.fn().mockImplementation(
+      (_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))),
+    );
+    const api = createApi('https://x.test', () => 'tok', hang, 20000);
+    const result = api.sync().catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(19999);
+    expect(hang).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(2);
+    const err = await result;
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(0);
+    vi.useRealTimers();
+  });
+
   it('sends a client-chosen id with a new item or store, and treats a 200 replay as success', async () => {
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(ok({ id: 'abc123abc123', name: 'Tea' }, 200)));
     const api = createApi('https://x.test', () => 'tok', fetchMock);

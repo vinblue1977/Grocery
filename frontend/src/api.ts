@@ -85,28 +85,41 @@ export interface Api {
   addItems(items: NewItem[]): Promise<{ added: number; skipped: number }>;
 }
 
-export function createApi(baseUrl: string, getToken: () => string | null, fetchImpl: typeof fetch = fetch): Api {
+export const REQUEST_TIMEOUT_MS = 20000;
+
+export function createApi(baseUrl: string, getToken: () => string | null, fetchImpl: typeof fetch = fetch, timeoutMs = REQUEST_TIMEOUT_MS): Api {
   async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
     if (!baseUrl) throw new ApiError(0, 'The API address is not configured');
     const headers: Record<string, string> = {};
     const token = getToken();
     if (token) headers['authorization'] = `Bearer ${token}`;
     if (body !== undefined) headers['content-type'] = 'application/json';
-    let res: Response;
+    // A request that hangs (a half-dead connection on a phone) is cut off and treated like being offline.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      res = await fetchImpl(`${baseUrl.replace(/\/$/, '')}${path}`, {
-        method,
-        headers,
-        ...(body !== undefined && { body: JSON.stringify(body) }),
-      });
-    } catch {
-      throw new ApiError(0, 'No connection');
+      let res: Response;
+      try {
+        res = await fetchImpl(`${baseUrl.replace(/\/$/, '')}${path}`, {
+          method,
+          headers,
+          signal: controller.signal,
+          ...(body !== undefined && { body: JSON.stringify(body) }),
+        });
+      } catch {
+        throw new ApiError(0, 'No connection');
+      }
+      if (!res.ok) {
+        const detail = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new ApiError(res.status, detail.error ?? `Request failed (${res.status})`);
+      }
+      return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
+    } catch (err) {
+      if (controller.signal.aborted && !(err instanceof ApiError)) throw new ApiError(0, 'The request timed out');
+      throw err;
+    } finally {
+      clearTimeout(timer);
     }
-    if (!res.ok) {
-      const detail = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new ApiError(res.status, detail.error ?? `Request failed (${res.status})`);
-    }
-    return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
   }
 
   return {
