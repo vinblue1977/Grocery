@@ -53,6 +53,13 @@ describe('api', () => {
     await expect(unset.me()).rejects.toMatchObject({ status: 0 });
   });
 
+  it.each([200, 201])('treats a success status with a body that is not JSON (a Wi-Fi login page) as having no connection', async (status) => {
+    const page = () => Promise.resolve(new Response('<html>Please log in to the store Wi-Fi</html>', { status, headers: { 'content-type': 'text/html' } }));
+    const api = createApi('https://x.test', () => 't', vi.fn().mockImplementation(page));
+    await expect(api.addItem('s', 'Milk')).rejects.toMatchObject({ status: 0 }); // so the edit queue keeps the edit and retries
+    await expect(api.sync()).rejects.toMatchObject({ status: 0 });
+  });
+
   it('handles 204 and list responses', async () => {
     const fetchMock = vi
       .fn()

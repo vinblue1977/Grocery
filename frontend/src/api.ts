@@ -113,7 +113,11 @@ export function createApi(baseUrl: string, getToken: () => string | null, fetchI
         const detail = (await res.json().catch(() => ({}))) as { error?: string };
         throw new ApiError(res.status, detail.error ?? `Request failed (${res.status})`);
       }
-      return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
+      if (res.status === 204) return undefined as T;
+      // A success status with a body that is not JSON is not our server (a Wi-Fi login page, a proxy): same as having no connection.
+      return (await res.json().catch(() => {
+        throw new ApiError(0, 'Unexpected response');
+      })) as T;
     } catch (err) {
       if (controller.signal.aborted && !(err instanceof ApiError)) throw new ApiError(0, 'The request timed out');
       throw err;
