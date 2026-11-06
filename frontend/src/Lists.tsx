@@ -31,6 +31,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
   const [photo, setPhoto] = useState<File | null>(null);
   const [notice, setNotice] = useState('');
   const picker = useRef<HTMLInputElement>(null);
+  const itemInput = useRef<HTMLInputElement>(null);
   const { data, error, mutate } = lists;
 
   const header = (
@@ -117,10 +118,12 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
             class="add"
             onSubmit={(e) => {
               e.preventDefault();
-              add(text);
+              if (text.trim()) add(text);
+              else itemInput.current?.focus(); // nothing typed: bring up the keyboard instead of doing nothing
             }}
           >
             <input
+              ref={itemInput}
               value={text}
               maxLength={80}
               enterkeyhint="done"
