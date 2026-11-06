@@ -109,7 +109,88 @@ describe('Lists screen', () => {
     await act(() => {
       (root.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     });
-    expect(api.addItem).toHaveBeenCalledWith('c', 'Tea');
+    expect(api.addItem).toHaveBeenCalledWith('c', 'Tea', undefined, expect.stringMatching(/^[0-9a-f]{32}$/));
+  });
+
+  it('shows a just-added item at once, but sends the tick only after the add has landed', async () => {
+    let landed: () => void = () => undefined;
+    (api.addItem as ReturnType<typeof vi.fn>).mockReturnValue(new Promise((resolve) => (landed = () => resolve({}))));
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await flush();
+    const input = root.querySelector('input') as HTMLInputElement;
+    input.value = 'Tea';
+    await act(() => {
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await click(root.querySelector('[aria-label="Add item"]'));
+    const sentId = (api.addItem as ReturnType<typeof vi.fn>).mock.calls[0]?.[3] as string;
+    await click(root.querySelector('[aria-label="Check off Tea"]'));
+    expect(root.querySelector('[aria-label="Delete Tea"]')).toBeNull(); // it moved to the in-cart section at once
+    expect(api.updateItem).not.toHaveBeenCalled(); // but the server has not seen the add yet
+    await act(async () => {
+      landed();
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    expect(api.updateItem).toHaveBeenCalledWith(sentId, { checked: true });
+  });
+
+  it('sends a delete of a just-added item only after the add, and an item for a just-added store only after the store', async () => {
+    const order: string[] = [];
+    let landItem: () => void = () => undefined;
+    let landStore: () => void = () => undefined;
+    api.addItem = vi.fn().mockImplementation((storeId: string, name: string) => {
+      order.push(`addItem ${name}`);
+      return new Promise((resolve) => (landItem = () => resolve({})));
+    });
+    api.deleteItem = vi.fn().mockImplementation(() => {
+      order.push('deleteItem');
+      return Promise.resolve();
+    });
+    api.addStore = vi.fn().mockImplementation((name: string) => {
+      order.push(`addStore ${name}`);
+      return new Promise((resolve) => (landStore = () => resolve({})));
+    });
+    let state: ListsState | undefined;
+    const Probe = () => {
+      state = useLists(api, vi.fn());
+      return null;
+    };
+    mount(<Probe />);
+    await flush();
+    const settle = () =>
+      act(async () => {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      });
+    void state?.mutate((d) => d, { kind: 'addItem', id: 'a1', storeId: 'c', name: 'Tea' });
+    void state?.mutate((d) => d, { kind: 'deleteItem', id: 'a1' });
+    void state?.mutate((d) => d, { kind: 'addStore', id: 's9', name: 'Aldi' });
+    void state?.mutate((d) => d, { kind: 'addItem', id: 'a2', storeId: 's9', name: 'Oats' });
+    await settle();
+    expect(order).toEqual(['addItem Tea']); // nothing else is sent while the first add is in flight
+    landItem();
+    await settle();
+    expect(order).toEqual(['addItem Tea', 'deleteItem', 'addStore Aldi']);
+    landStore();
+    await settle();
+    expect(order).toEqual(['addItem Tea', 'deleteItem', 'addStore Aldi', 'addItem Oats']);
+  });
+
+  it('adds a store under a client id and selects it at once', async () => {
+    (api.addStore as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => undefined));
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await flush();
+    await click(root.querySelector('[aria-label="Add a store"]'));
+    const box = root.querySelector('input[placeholder="Store name"]') as HTMLInputElement;
+    box.value = 'Aldi';
+    await act(() => {
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(() => {
+      box.form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    expect(api.addStore).toHaveBeenCalledWith('Aldi', expect.stringMatching(/^[0-9a-f]{32}$/));
+    const selected = root.querySelector('[role="tab"][aria-selected="true"]');
+    expect(selected?.textContent).toBe('Aldi');
   });
 
   it('adds an item when the plus button is tapped', async () => {
@@ -121,7 +202,7 @@ describe('Lists screen', () => {
       input.dispatchEvent(new Event('input', { bubbles: true }));
     });
     await click(root.querySelector('[aria-label="Add item"]'));
-    expect(api.addItem).toHaveBeenCalledWith('c', 'Tea');
+    expect(api.addItem).toHaveBeenCalledWith('c', 'Tea', undefined, expect.stringMatching(/^[0-9a-f]{32}$/));
   });
 
   it('focuses the field instead of adding when ＋ is tapped with nothing typed', async () => {
@@ -198,7 +279,7 @@ describe('Lists screen', () => {
     const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
     await flush();
     await click(chip(root, 'Add Bananas'));
-    expect(api.addItem).toHaveBeenCalledWith('c', 'Bananas');
+    expect(api.addItem).toHaveBeenCalledWith('c', 'Bananas', undefined, expect.stringMatching(/^[0-9a-f]{32}$/));
   });
 
   it('narrows the chips as you type, and hides Edit while typing', async () => {
@@ -238,7 +319,7 @@ describe('Lists screen', () => {
       input.dispatchEvent(new Event('input', { bubbles: true }));
     });
     await click(chip(root, 'Add Bananas'));
-    expect(api.addItem).toHaveBeenCalledWith('c', 'Bananas');
+    expect(api.addItem).toHaveBeenCalledWith('c', 'Bananas', undefined, expect.stringMatching(/^[0-9a-f]{32}$/));
     expect(api.setFrequent).not.toHaveBeenCalled();
   });
 
@@ -336,7 +417,8 @@ describe('useLists', () => {
 
     let finish: () => void = () => undefined;
     const slow = new Promise<void>((resolve) => (finish = resolve));
-    const pending = state?.mutate((d) => d, () => slow);
+    api.deleteItem = vi.fn().mockReturnValue(slow);
+    const pending = state?.mutate((d) => d, { kind: 'deleteItem', id: 'milk' });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10000);
     });
@@ -348,49 +430,45 @@ describe('useLists', () => {
     expect(api.sync).toHaveBeenCalledTimes(3); // one re-sync after the edit
   });
 
-  it('keeps the error visible after a failed edit, undoes it on screen and re-syncs', async () => {
+  it('keeps an edit on screen and queued when the server has a hiccup, without the old "not saved" message', async () => {
+    api.deleteItem = vi.fn().mockRejectedValue(new ApiError(500, 'boom'));
     let state: ListsState | undefined;
     const Probe = () => {
       state = useLists(api, vi.fn());
       return (
         <p>
-          {state.error}|{state.data?.items.length}
+          {state.error}|{state.data?.items.length}|{state.pending}
         </p>
       );
     };
     const root = mount(<Probe />);
     await flush();
-    expect(root.textContent).toBe('|3');
+    expect(root.textContent).toBe('|3|0');
     await act(async () => {
-      await state?.mutate(
-        (d) => ({ ...d, items: [] }),
-        () => Promise.reject(new ApiError(500, 'boom')),
-      );
+      await state?.mutate((d) => ({ ...d, items: [] }), { kind: 'deleteItem', id: 'milk' });
     });
-    expect(root.textContent).toBe('That change was not saved|3'); // edit undone, message kept
-    expect(api.sync).toHaveBeenCalledTimes(2);
+    expect(root.textContent).toBe('|0|1'); // edit stays, waiting to be retried
+    expect(api.sync).toHaveBeenCalledTimes(1); // no re-sync until it is sent
   });
 
-  it('undoes an edit that failed offline even though the re-sync also fails', async () => {
+  it('keeps an edit made offline on screen and waiting', async () => {
     let state: ListsState | undefined;
     const Probe = () => {
       state = useLists(api, vi.fn());
       return (
         <p>
-          {state.error}|{state.data?.items.length}
+          {state.error}|{state.data?.items.length}|{state.pending}|{String(state.offline)}
         </p>
       );
     };
     const root = mount(<Probe />);
     await flush();
     api.sync = vi.fn().mockRejectedValue(new ApiError(0, 'No connection'));
+    api.deleteItem = vi.fn().mockRejectedValue(new ApiError(0, 'No connection'));
     await act(async () => {
-      await state?.mutate(
-        (d) => ({ ...d, items: [] }),
-        () => Promise.reject(new ApiError(0, 'No connection')),
-      );
+      await state?.mutate((d) => ({ ...d, items: [] }), { kind: 'deleteItem', id: 'milk' });
     });
-    expect(root.textContent).toBe('Offline: that change was not saved|3');
+    expect(root.textContent).toBe('|0|1|true');
   });
 
   it('discards a slow sync that finished after an edit', async () => {
@@ -405,7 +483,7 @@ describe('useLists', () => {
     api.sync = vi.fn().mockReturnValueOnce(new Promise<Snapshot>((resolve) => (release = resolve)));
     const slowPoll = state?.refresh();
     await act(async () => {
-      await state?.mutate((d) => ({ ...d, items: [] }), () => Promise.resolve());
+      await state?.mutate((d) => ({ ...d, items: [] }), { kind: 'clearChecked', storeId: 'zzz' });
     });
     api.sync = vi.fn().mockResolvedValue({ ...snapshot(), items: [] });
     release(snapshot()); // the old, pre-edit snapshot arrives last
