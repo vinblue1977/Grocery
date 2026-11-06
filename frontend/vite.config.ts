@@ -5,5 +5,5 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   base: './',
   plugins: [preact()],
-  test: { environment: 'jsdom' },
+  test: { environment: 'jsdom', coverage: { enabled: false } },
 });

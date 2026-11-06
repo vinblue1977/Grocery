@@ -2,7 +2,7 @@ export type ThemePref = 'light' | 'dark' | 'auto';
 export type Theme = 'light' | 'dark';
 
 const KEY = 'grocery.theme';
-// iOS status bar colour per theme; keeps the Home Screen app's top edge matching the page.
+// theme-color per theme (Safari toolbar); the Home Screen app's translucent status bar shows the page colour itself.
 const BAR: Record<Theme, string> = { light: '#f4f5f2', dark: '#14181a' };
 
 export function isThemePref(value: unknown): value is ThemePref {
@@ -38,4 +38,9 @@ export function applyTheme(pref: ThemePref, doc: Document = document, systemDark
   doc.documentElement.dataset['theme'] = theme;
   doc.querySelector('meta[name="theme-color"]')?.setAttribute('content', BAR[theme]);
   return theme;
+}
+
+/** Re-resolves "auto" when the system switches (e.g. iOS going dark at sunset) while the app stays open. */
+export function watchSystem(getPref: () => ThemePref): void {
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => applyTheme(getPref()));
 }

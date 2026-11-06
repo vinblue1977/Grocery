@@ -13,7 +13,7 @@ install:            ## Create the virtualenv and install everything (uv if insta
 	npm ci --ignore-scripts --no-audit --no-fund  # the CDK CLI and pyright
 	npm ci --prefix frontend --ignore-scripts --no-audit --no-fund  # the PWA and its tools
 
-check:              ## Everything CI checks, locally (synth uses a stand-in app, like CI)
+check:              ## Everything CI checks, locally
 	$(MAKE) privacy lint test frontend audit
 	$(MAKE) synth
 

@@ -61,7 +61,7 @@ class GroceryStack(Stack):
             runtime=lambda_.Runtime.PYTHON_3_14,
             architecture=lambda_.Architecture.ARM_64,
             handler="api.handler.handler",
-            code=lambda_.Code.from_asset("backend"),
+            code=lambda_.Code.from_asset("backend", exclude=["**/__pycache__", "**/*.pyc"]),
             memory_size=128,
             timeout=Duration.seconds(10),
             environment={"TABLE_NAME": self.table.table_name},
