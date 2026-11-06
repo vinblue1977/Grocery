@@ -32,6 +32,19 @@ export interface Item {
   updatedAt: number;
 }
 
+export interface ScannedItem {
+  name: string;
+  note: string;
+  storeId: string | null;
+  unsure: boolean;
+}
+
+export interface NewItem {
+  name: string;
+  note: string;
+  storeId: string;
+}
+
 export interface Snapshot {
   stores: Store[];
   items: Item[];
@@ -58,6 +71,8 @@ export interface Api {
   addItem(storeId: string, name: string, note?: string): Promise<Item>;
   updateItem(id: string, changes: Partial<Pick<Item, 'checked' | 'name' | 'note'>>): Promise<Item>;
   deleteItem(id: string): Promise<void>;
+  scan(imageBase64: string): Promise<ScannedItem[]>;
+  addItems(items: NewItem[]): Promise<{ added: number; skipped: number }>;
 }
 
 export function createApi(baseUrl: string, getToken: () => string | null, fetchImpl: typeof fetch = fetch): Api {
@@ -101,6 +116,8 @@ export function createApi(baseUrl: string, getToken: () => string | null, fetchI
     addItem: (storeId, name, note) => request('POST', '/items', { storeId, name, ...(note ? { note } : {}) }),
     updateItem: (id, changes) => request('PATCH', `/items/${encodeURIComponent(id)}`, changes),
     deleteItem: (id) => request('DELETE', `/items/${encodeURIComponent(id)}`),
+    scan: async (imageBase64) => (await request<{ items: ScannedItem[] }>('POST', '/scan', { image: imageBase64 })).items,
+    addItems: (items) => request('POST', '/items/bulk', { items }),
   };
 }
 

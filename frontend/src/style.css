@@ -58,3 +58,23 @@ button { font: inherit; }
 .icon-btn { background: none; border: 0; color: var(--mut); padding: 8px; margin-right: -8px; border-radius: 12px; display: grid; place-items: center; }
 .icon-btn:active { background: var(--accl); }
 .back { background: none; border: 0; color: var(--acc); font: inherit; font-size: 17px; padding: 8px 0; }
+.add .camera { color: var(--acc); width: 44px; padding: 0; display: grid; place-items: center; }
+.notice { text-align: center; color: var(--acc); font-size: 14px; }
+.sheet {
+  position: fixed; inset: 56px 0 0; background: var(--bg); border-top: 1px solid var(--line); border-radius: 20px 20px 0 0;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 8px; z-index: 10;
+  box-shadow: 0 -8px 24px #0005; max-width: 480px; margin: 0 auto;
+}
+.sheet h2 { margin: 0; font-size: 18px; }
+.sheet .found { flex: 1; overflow-y: auto; }
+.sheet .r { display: flex; align-items: center; gap: 8px; background: var(--card); border-radius: 12px; padding: 8px 10px; margin-bottom: 6px; }
+.sheet .r .n { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sheet .r .n input { border: 0; background: transparent; padding: 2px 0; color: var(--ink); }
+.sheet .r input[type='checkbox'] { width: 22px; height: 22px; accent-color: var(--acc); flex: none; }
+.sheet select { background: var(--accl); color: var(--acc); border: 0; border-radius: 10px; padding: 6px 8px; font: inherit; font-size: 13px; max-width: 110px; }
+.sheet .primary { padding: 12px; border-radius: 12px; border: 0; background: var(--acc); color: var(--bg); font-weight: 600; font: inherit; }
+.sheet .primary:disabled { opacity: 0.5; }
+.sheet .ghost { background: none; border: 0; color: var(--mut); font: inherit; padding: 8px; }
+.reading { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--mut); }
+.spin { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--acc); animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
