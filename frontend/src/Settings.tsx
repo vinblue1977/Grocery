@@ -159,8 +159,10 @@ export function Settings({ api, lists, session, onSignedOut, onBack }: Props) {
         ))}
       </section>
 
-      <section class="card">
-        <strong>Invite your partner</strong>
+      <details class="card">
+        <summary>
+          <strong>Invite your partner</strong>
+        </summary>
         <p class="muted">One-time link, valid for 24 hours. They open it on their iPhone and stay signed in.</p>
         <button class="primary" type="button" onClick={() => void invite()}>
           Create invite link
@@ -173,7 +175,7 @@ export function Settings({ api, lists, session, onSignedOut, onBack }: Props) {
             </button>
           </>
         )}
-      </section>
+      </details>
 
       <details class="card">
         <summary>
