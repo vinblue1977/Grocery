@@ -1,4 +1,4 @@
-import { useRef, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Api } from './api';
 import { forStore, pickStore, withChecked, withNewItem, withoutChecked, withoutItem } from './listState';
 import type { Session } from './session';
@@ -32,7 +32,12 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
   const [notice, setNotice] = useState('');
   const picker = useRef<HTMLInputElement>(null);
   const itemInput = useRef<HTMLInputElement>(null);
+  const storeInput = useRef<HTMLInputElement>(null);
   const { data, error, mutate } = lists;
+
+  useEffect(() => {
+    if (addingStore) storeInput.current?.focus(); // once, when the box opens; not on every refresh
+  }, [addingStore]);
 
   const header = (
     <header class="top">
@@ -78,12 +83,16 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
     );
   };
 
+  const closeStoreForm = () => {
+    setStoreName('');
+    setAddingStore(false);
+  };
+
   const addStore = async (event: Event) => {
     event.preventDefault();
     const name = storeName.trim();
     if (!name) return;
-    setStoreName('');
-    setAddingStore(false);
+    closeStoreForm();
     await mutate(
       (d) => d,
       async () => choose((await api.addStore(name)).id),
@@ -99,13 +108,24 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
             {store.name}
           </button>
         ))}
-        <button type="button" class="tab" aria-label="Add a store" onClick={() => setAddingStore(!addingStore)}>
+        <button type="button" class="tab" aria-label="Add a store" onClick={() => (addingStore ? closeStoreForm() : setAddingStore(true))}>
           ＋
         </button>
       </div>
       {addingStore && (
-        <form class="add" onSubmit={(e) => void addStore(e)}>
-          <input value={storeName} maxLength={80} placeholder="Store name" onInput={(e) => setStoreName(e.currentTarget.value)} />
+        <form class="add" onSubmit={(e) => void addStore(e)} onKeyDown={(e) => {
+          if (e.key === 'Escape' && !e.isComposing) closeStoreForm();
+        }}>
+          <input
+            ref={storeInput}
+            value={storeName}
+            maxLength={80}
+            placeholder="Store name"
+            onInput={(e) => setStoreName(e.currentTarget.value)}
+          />
+          <button type="button" onClick={closeStoreForm}>
+            Cancel
+          </button>
           <button type="submit">Add</button>
         </form>
       )}
