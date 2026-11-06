@@ -324,3 +324,108 @@ def test_the_cap_never_forgets_a_hidden_choice(me, table, monkeypatch):
     rows = table.query(KeyConditionExpression="PK = :pk", ExpressionAttributeValues={":pk": f"H#{me['householdId']}"})["Items"]
     kept = {r["SK"] for r in rows if r["SK"].startswith("FREQ#")}
     assert any(sk.endswith("#milk") for sk in kept)
+
+
+def post(me, path: str, body: dict):
+    return call("POST", path, body, me["token"])
+
+
+def test_an_item_added_twice_with_the_same_id_is_created_once(me):
+    costco = store_id(me, "Costco")
+    first = post(me, "/items", {"storeId": costco, "name": "Milk", "id": "a" * 12})
+    assert first[0] == 201 and first[1]["id"] == "a" * 12
+    again = post(me, "/items", {"storeId": costco, "name": "Milk", "id": "a" * 12})
+    assert again[0] == 200 and again[1]["id"] == "a" * 12  # a replay returns what is already there
+    assert [i["name"] for i in sync(me)["items"]] == ["Milk"]
+
+
+def test_a_replayed_add_does_not_count_twice_toward_suggestions(me):
+    costco = store_id(me, "Costco")
+    for _ in range(4):
+        post(me, "/items", {"storeId": costco, "name": "Milk", "id": "b" * 12})  # one real add, replayed three times
+    add(me, costco, "Milk")  # the second real add
+    assert freq(me) == []  # two real adds: not yet often
+    add(me, costco, "Milk")  # the third
+    assert [f["count"] for f in freq(me)] == [3]
+
+
+def test_a_replayed_add_returns_the_existing_item_even_after_it_was_checked_off(me):
+    costco = store_id(me, "Costco")
+    item = post(me, "/items", {"storeId": costco, "name": "Eggs", "id": "c" * 16})[1]
+    assert call("PATCH", f"/items/{item['id']}", {"checked": True}, me["token"])[0] == 200
+    again = post(me, "/items", {"storeId": costco, "name": "Eggs", "id": "c" * 16})
+    assert again[0] == 200 and again[1]["checked"] is True  # not turned back into a new unchecked item
+
+
+def test_a_store_added_twice_with_the_same_id_is_created_once(me):
+    first = post(me, "/stores", {"name": "Aldi", "id": "d" * 12})
+    assert first[0] == 201
+    again = post(me, "/stores", {"name": "Aldi", "id": "d" * 12})
+    assert again[0] == 200 and again[1] == first[1]
+    assert [s["name"] for s in sync(me)["stores"]].count("Aldi") == 1
+
+
+@pytest.mark.parametrize("bad", ["short", "G" * 12, "a" * 33, "../../x" * 3, 12345, ""])
+def test_a_bad_client_id_is_rejected(me, bad):
+    costco = store_id(me, "Costco")
+    assert post(me, "/items", {"storeId": costco, "name": "Milk", "id": bad})[0] == 400
+    assert post(me, "/stores", {"name": "Aldi", "id": bad})[0] == 400
+
+
+def test_a_replayed_add_into_a_deleted_store_is_not_found(me):
+    costco = store_id(me, "Costco")
+    call("DELETE", f"/stores/{costco}", token=me["token"])
+    assert post(me, "/items", {"storeId": costco, "name": "Milk", "id": "f" * 12})[0] == 404
+
+
+def test_an_id_already_used_for_a_different_item_or_store_is_rejected(me):
+    costco, patel = store_id(me, "Costco"), store_id(me, "Patel")
+    post(me, "/items", {"storeId": costco, "name": "Milk", "id": "1" * 12})
+    assert post(me, "/items", {"storeId": patel, "name": "Milk", "id": "1" * 12})[0] == 400  # other store
+    assert post(me, "/items", {"storeId": costco, "name": "Eggs", "id": "1" * 12})[0] == 400  # other name
+    assert post(me, "/items", {"storeId": costco, "name": "MILK", "id": "1" * 12})[0] == 200  # same item, any case
+    post(me, "/stores", {"name": "Aldi", "id": "2" * 12})
+    assert post(me, "/stores", {"name": "Lidl", "id": "2" * 12})[0] == 400
+
+
+def test_a_lost_race_with_a_concurrent_replay_returns_the_winner(me, monkeypatch):
+    from api import lists
+
+    costco = store_id(me, "Costco")
+
+    def other_request_wins(table, ops):
+        table.put_item(Item=ops[1]["Put"]["Item"])  # the same add lands first, so this transaction is cancelled
+        return False
+
+    monkeypatch.setattr(lists, "transact", other_request_wins)
+    status, body = post(me, "/items", {"storeId": costco, "name": "Milk", "id": "3" * 12})
+    assert status == 200 and body["id"] == "3" * 12
+    assert [i["name"] for i in sync(me)["items"]] == ["Milk"]
+
+
+def test_a_transaction_that_lost_to_another_write_is_retryable_not_not_found(me, monkeypatch):
+    from api import lists
+
+    costco = store_id(me, "Costco")  # first sync seeds the default stores, so look it up before patching
+    monkeypatch.setattr(lists, "transact", lambda table, ops: False)  # cancelled, yet the store exists
+    status, _body = post(me, "/items", {"storeId": costco, "name": "Milk", "id": "4" * 12})
+    assert status == 503
+    assert sync(me)["items"] == []  # nothing was saved
+
+
+def test_a_store_add_that_loses_the_race_returns_the_winner(me, table):
+    from api import lists
+    from api.households import Session
+
+    session = Session(household_id=me["householdId"], device_id=me["deviceId"])
+    real_get = table.get_item
+    calls = {"n": 0}
+
+    def first_lookup_misses(**kwargs):
+        calls["n"] += 1
+        return {} if calls["n"] == 1 else real_get(**kwargs)
+
+    table.put_item(Item={"PK": f"H#{me['householdId']}", "SK": f"STORE#{'5' * 12}", "id": "5" * 12, "name": "Aldi", "order": 9})
+    table.get_item = first_lookup_misses  # type: ignore[method-assign]
+    store, created = lists.add_store(table, session, "Aldi", "5" * 12)
+    assert created is False and store["id"] == "5" * 12

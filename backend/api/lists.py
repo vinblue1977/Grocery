@@ -8,6 +8,7 @@ Items (PK is always H#<hid>):
 """
 
 import logging
+import re
 import time
 import uuid
 from typing import Any
@@ -24,11 +25,16 @@ MAX_NOTE = 120
 MAX_STORES = 20
 MAX_ITEMS = 500
 FREQ_MIN = 3  # an item added this many times to a store is suggested there
+ID_PATTERN = re.compile(r"[0-9a-f]{12,32}")  # a client-made id (the server makes 12-hex ones), so an offline edit replays safely
 MAX_FREQ = 150  # remembered names per household; keeps the sync read small (the table is 25 RCU)
 
 
 class NotFound(Exception):
     pass
+
+
+class Busy(Exception):
+    """A write collided with another one in flight; nothing was saved, and trying again will work."""
 
 
 class Invalid(Exception):
@@ -41,6 +47,15 @@ def household_key(session: Session) -> str:
 
 def _now() -> int:
     return time.time_ns() // 1_000_000
+
+
+def _new_id(value: object) -> str:
+    """The id a client chose for a new store or item (so a replay is recognised), or a fresh one."""
+    if value is None:
+        return uuid.uuid4().hex[:12]
+    if not isinstance(value, str) or not ID_PATTERN.fullmatch(value):
+        raise Invalid("id must be 12 to 32 lowercase hex characters")
+    return value
 
 
 def clean_text(value: object, limit: int, *, required: bool = False) -> str:
@@ -159,21 +174,36 @@ def list_stores(table: Any, session: Session) -> list[dict[str, Any]]:
     return sorted((_store_view(r) for r in rows), key=lambda s: (s["order"], s["name"]))
 
 
-def add_store(table: Any, session: Session, name: object) -> dict[str, Any]:
+def add_store(table: Any, session: Session, name: object, store_id: object = None) -> tuple[dict[str, Any], bool]:
+    """Returns the store and whether it was created now (False: this id was already added, so a replay changes nothing)."""
     clean = clean_text(name, MAX_NAME, required=True)
+    new_id = _new_id(store_id)
+    if store_id is not None:  # a server-made id can't be a replay, so only a client-chosen one needs the lookup
+        existing = table.get_item(Key={"PK": household_key(session), "SK": f"STORE#{new_id}"}, ConsistentRead=True).get("Item")
+        if existing:
+            if existing["name"] != clean:
+                raise Invalid("that id already belongs to a different store")
+            return _store_view(existing), False
     rows = [r for r in _all(table, session) if r["SK"].startswith("STORE#")]
     if len(rows) >= MAX_STORES:
         raise Invalid(f"at most {MAX_STORES} stores")
-    store_id = uuid.uuid4().hex[:12]
     item = {
         "PK": household_key(session),
-        "SK": f"STORE#{store_id}",
-        "id": store_id,
+        "SK": f"STORE#{new_id}",
+        "id": new_id,
         "name": clean,
         "order": max((int(r["order"]) for r in rows), default=-1) + 1,
     }
-    table.put_item(Item=item)
-    return _store_view(item)
+    try:
+        table.put_item(Item=item, ConditionExpression="attribute_not_exists(PK)")
+    except ClientError as err:
+        if err.response["Error"]["Code"] != "ConditionalCheckFailedException":
+            raise
+        raced = _get(table, session, f"STORE#{new_id}")  # a concurrent replay won the race
+        if raced["name"] != clean:
+            raise Invalid("that id already belongs to a different store") from err
+        return _store_view(raced), False
+    return _store_view(item), True
 
 
 def _update(table: Any, session: Session, sk: str, fields: dict[str, Any]) -> dict[str, Any]:
@@ -271,17 +301,31 @@ def set_frequent(table: Any, session: Session, store_id: object, name: object, p
     }
 
 
-def add_item(table: Any, session: Session, store_id: object, name: object, note: object, added_by: str) -> dict[str, Any]:
+def _replayed(existing: dict[str, Any], store_id: str, name: str) -> dict[str, Any]:
+    """The item an earlier request with this id created, unless the id is really being reused for a different item."""
+    if existing["storeId"] != store_id or existing["name"].casefold() != name.casefold():
+        raise Invalid("that id already belongs to a different item")
+    return _item_view(existing)
+
+
+def add_item(
+    table: Any, session: Session, store_id: object, name: object, note: object, added_by: str, item_id: object = None
+) -> tuple[dict[str, Any], bool]:
+    """Returns the item and whether it was created now (False: this id was already added, so a replay changes nothing)."""
     clean = clean_text(name, MAX_NAME, required=True)
     if not isinstance(store_id, str):
         raise Invalid("storeId is required")
+    new_id = _new_id(item_id)
+    if item_id is not None:  # a server-made id can't be a replay, so only a client-chosen one needs the lookup
+        existing = table.get_item(Key={"PK": household_key(session), "SK": f"ITEM#{new_id}"}, ConsistentRead=True).get("Item")
+        if existing:
+            return _replayed(existing, store_id, clean), False
     if _count(table, session, "ITEM#") >= MAX_ITEMS:
         raise Invalid(f"at most {MAX_ITEMS} items")
-    item_id = uuid.uuid4().hex[:12]
     item = {
         "PK": household_key(session),
-        "SK": f"ITEM#{item_id}",
-        "id": item_id,
+        "SK": f"ITEM#{new_id}",
+        "id": new_id,
         "storeId": store_id,
         "name": clean,
         "note": clean_text(note, MAX_NOTE),
@@ -297,10 +341,16 @@ def add_item(table: Any, session: Session, store_id: object, name: object, note:
             "ConditionExpression": "attribute_exists(PK)",
         }
     }
-    if not transact(table, [store_exists, put_op(table, item)]):
-        raise NotFound
+    if not transact(table, [store_exists, put_op(table, item, condition="attribute_not_exists(PK)")]):
+        raced = table.get_item(Key={"PK": household_key(session), "SK": f"ITEM#{new_id}"}, ConsistentRead=True).get("Item")
+        if raced:  # a concurrent replay of the same add won the race
+            return _replayed(raced, store_id, clean), False
+        store = table.get_item(Key={"PK": household_key(session), "SK": f"STORE#{store_id}"}, ConsistentRead=True).get("Item")
+        if not store:
+            raise NotFound
+        raise Busy  # the store is there, so the transaction lost to a concurrent write: nothing saved, safe to retry
     _bump(table, session, store_id, clean)
-    return _item_view(item)
+    return _item_view(item), True
 
 
 def update_item(table: Any, session: Session, item_id: str, changes: dict[str, Any]) -> dict[str, Any]:
