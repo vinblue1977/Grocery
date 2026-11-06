@@ -33,7 +33,6 @@ button { font: inherit; }
 .link { word-break: break-all; font-size: 12px; background: var(--bg); padding: 8px; border-radius: 8px; }
 .error { color: #c0392b; font-size: 14px; }
 .tip { font-size: 13px; background: var(--accl); color: var(--ink); padding: 10px; border-radius: 10px; }
-.app { padding-bottom: 88px; }
 .tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; }
 .tab { padding: 6px 14px; border-radius: 16px; background: var(--card); border: 1px solid var(--line); color: var(--ink); white-space: nowrap; font: inherit; }
 .tab[aria-selected='true'] { background: var(--acc); border-color: var(--acc); color: var(--bg); }
@@ -52,10 +51,10 @@ button { font: inherit; }
 .x, .link-btn { background: none; border: 0; color: var(--mut); font: inherit; padding: 6px; }
 .link-btn { color: var(--acc); text-transform: none; letter-spacing: 0; font-size: 13px; }
 .status { text-align: center; }
-.nav {
-  position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-around; background: var(--card);
-  border-top: 1px solid var(--line); padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
-}
-.nav button { background: none; border: 0; color: var(--mut); font-size: 20px; display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.nav button span { font-size: 10px; }
-.nav button[aria-current='true'] { color: var(--acc); font-weight: 700; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.top.left { justify-content: flex-start; gap: 16px; }
+.top h1 { margin: 0; }
+[hidden] { display: none !important; }
+.icon-btn { background: none; border: 0; color: var(--mut); padding: 8px; margin-right: -8px; border-radius: 12px; display: grid; place-items: center; }
+.icon-btn:active { background: var(--accl); }
+.back { background: none; border: 0; color: var(--acc); font: inherit; font-size: 17px; padding: 8px 0; }

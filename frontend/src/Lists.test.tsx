@@ -32,9 +32,9 @@ function mount(element: preact.VNode) {
   return root;
 }
 
-function Harness({ api, onSignedOut }: { api: Api; onSignedOut: () => void }) {
+function Harness({ api, onSignedOut, onOpenSettings = () => undefined }: { api: Api; onSignedOut: () => void; onOpenSettings?: () => void }) {
   const lists = useLists(api, onSignedOut);
-  return <Lists api={api} lists={lists} session={session} />;
+  return <Lists api={api} lists={lists} session={session} onOpenSettings={onOpenSettings} />;
 }
 
 const click = (el: Element | null) =>
@@ -108,6 +108,16 @@ describe('Lists screen', () => {
     expect(api.deleteItem).toHaveBeenCalledWith('milk');
     await click(Array.from(root.querySelectorAll('button')).find((b) => b.textContent === 'Clear') ?? null);
     expect(api.clearChecked).toHaveBeenCalledWith('c');
+  });
+
+  it('opens settings from the header icon, even while loading', async () => {
+    const open = vi.fn();
+    api.sync = vi.fn().mockReturnValue(new Promise(() => undefined)); // never answers: still loading
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} onOpenSettings={open} />);
+    await flush();
+    expect(root.textContent).toContain('Loading');
+    await click(root.querySelector('[aria-label="Settings"]'));
+    expect(open).toHaveBeenCalled();
   });
 
   it('puts an item back from the cart', async () => {
