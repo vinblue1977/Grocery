@@ -1,5 +1,6 @@
-"""The Grocery stack: one DynamoDB table, one Lambda behind a function URL, and the GitHub deploy role (the account's existing budget alert covers cost).
+"""The Grocery stack: one DynamoDB table, one Lambda behind a function URL and the GitHub deploy role.
 
+The AWS account's existing budget alert (from TennisTracker) covers cost, so this stack has none.
 Everything here stays inside the AWS always-free tier: provisioned DynamoDB at or under 25 RCU/WCU, Lambda (1M requests a
 month), a function URL instead of API Gateway, and no PITR, KMS keys, NAT, VPC or Secrets Manager.
 """
