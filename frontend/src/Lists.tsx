@@ -31,6 +31,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
   const [photo, setPhoto] = useState<File | null>(null);
   const [notice, setNotice] = useState('');
   const picker = useRef<HTMLInputElement>(null);
+  const itemInput = useRef<HTMLInputElement>(null);
   const { data, error, mutate } = lists;
 
   const header = (
@@ -117,10 +118,12 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
             class="add"
             onSubmit={(e) => {
               e.preventDefault();
-              add(text);
+              // Read the field itself: on iPhone, autocorrect can leave the last word out of `text` until the field loses focus.
+              add(itemInput.current?.value ?? text);
             }}
           >
             <input
+              ref={itemInput}
               value={text}
               maxLength={80}
               enterkeyhint="done"

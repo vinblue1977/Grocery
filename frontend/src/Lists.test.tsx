@@ -105,6 +105,26 @@ describe('Lists screen', () => {
     expect(api.addItem).toHaveBeenCalledWith('c', 'Tea');
   });
 
+  it('adds an item when the plus button is tapped', async () => {
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await flush();
+    const input = root.querySelector('input') as HTMLInputElement;
+    input.value = 'Tea';
+    await act(() => {
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await click(root.querySelector('[aria-label="Add item"]'));
+    expect(api.addItem).toHaveBeenCalledWith('c', 'Tea');
+  });
+
+  it('adds what is in the field even if no input event fired yet (iPhone autocorrect)', async () => {
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await flush();
+    (root.querySelector('input') as HTMLInputElement).value = 'Tea';
+    await click(root.querySelector('[aria-label="Add item"]'));
+    expect(api.addItem).toHaveBeenCalledWith('c', 'Tea');
+  });
+
   it('deletes an item and clears the cart', async () => {
     const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
     await flush();
