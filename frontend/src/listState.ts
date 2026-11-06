@@ -46,6 +46,19 @@ export function withRenamedStore(data: Snapshot, id: string, name: string): Snap
   return { ...data, stores: data.stores.map((s) => (s.id === id ? { ...s, name } : s)) };
 }
 
+/** True when `itemId` is the only thing left to buy in its store, so ticking it empties the store. */
+export function isLastToBuy(items: Item[], storeId: string, itemId: string): boolean {
+  const left = items.filter((i) => i.storeId === storeId && !i.checked);
+  return left.length === 1 && left[0]?.id === itemId;
+}
+
+/** The store after this one in tab order (wrapping round), or null when there is no other store. */
+export function nextStore(stores: Store[], storeId: string): Store | null {
+  const at = stores.findIndex((s) => s.id === storeId);
+  if (at < 0 || stores.length < 2) return null;
+  return stores[(at + 1) % stores.length] ?? null;
+}
+
 const SUGGESTION_LIMIT = 12;
 
 /**
