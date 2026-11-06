@@ -36,7 +36,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
   const picker = useRef<HTMLInputElement>(null);
   const itemInput = useRef<HTMLInputElement>(null);
   const storeInput = useRef<HTMLInputElement>(null);
-  const { data, error, mutate, pending, sending, offline, problem } = lists;
+  const { data, error, mutate, pending, sending, offline, problem, dismissProblem } = lists;
 
   // A store chosen when it was added but never created (the add was refused) must not linger as the remembered selection.
   const stores = data?.stores;
@@ -312,7 +312,14 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
         </p>
       )}
       {error && !(pending > 0 && offline) && <p class="muted status">{error}</p>}
-      {problem && <p class="error">{problem}</p>}
+      {problem && (
+        <p class="error">
+          {problem}{' '}
+          <button type="button" class="link-btn" onClick={dismissProblem}>
+            Dismiss
+          </button>
+        </p>
+      )}
     </main>
   );
 }

@@ -120,7 +120,7 @@ describe('edit queue in useLists', () => {
     expect(root.textContent).toBe('Milk|0|'); // queue empty, no message, screen follows the server
   });
 
-  it('drops a refused add, shows a one-shot message and rebuilds from the server list plus what is still queued', async () => {
+  it('drops a refused add, shows a message and rebuilds from the server list plus what is still queued', async () => {
     const api = fake({
       addItem: vi.fn().mockImplementation((_s: string, name: string) => (name === 'Bad' ? Promise.reject(new ApiError(404, 'no store')) : Promise.resolve({}))),
     });
@@ -130,11 +130,7 @@ describe('edit queue in useLists', () => {
     await act(async () => {
       await add('i1', 'Bad');
     });
-    expect(root.textContent).toBe('Milk|0|1 change could not be saved');
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(9000);
-    });
-    expect(root.textContent).toBe('Milk|0|');
+    expect(root.textContent).toBe('Milk|0|1 change could not be saved'); // the failed add is gone; the server's list is back
   });
 
   it('signs out on 401 and sends nothing more', async () => {
@@ -205,22 +201,25 @@ describe('edit queue in useLists', () => {
 });
 
 describe('edit queue safeguards', () => {
-  it('drops an edit the server keeps failing on (500) after 10 attempts, but never counts being offline', async () => {
-    const addItem = vi.fn().mockRejectedValue(new ApiError(500, 'boom'));
+  it.each([500, 502, 504])('keeps an edit the server answers %i for until it has failed 10 times over 15 minutes, never counts being offline', async (status) => {
+    vi.useFakeTimers({ toFake: ['Date'] }); // only the clock, so the test can jump 15 minutes
+    const addItem = vi.fn().mockRejectedValue(new ApiError(status, 'boom'));
     const api = fake({ addItem, deleteItem: vi.fn().mockRejectedValue(offlineError()) });
     const root = mount(api);
     await settle();
     await act(async () => {
       await add('i1', 'Tea');
     });
-    for (let i = 0; i < 8; i++) {
-      goOnline();
+    for (let i = 0; i < 14; i++) {
+      goOnline(); // taps and 'online' events skip the backoff: they must not use the budget up
       await settle();
     }
-    expect(state.pending).toBe(1); // 9 failed attempts so far
+    expect(addItem.mock.calls.length).toBeGreaterThan(10);
+    expect(state.pending).toBe(1); // 15 failures within a second: still kept
+    vi.setSystemTime(Date.now() + 16 * 60 * 1000);
     goOnline();
     await settle();
-    expect(addItem).toHaveBeenCalledTimes(10);
+    expect(state.pending).toBe(0);
     expect(root.textContent).toBe('Milk|0|1 change could not be saved');
 
     for (let i = 0; i < 12; i++) {
@@ -228,7 +227,7 @@ describe('edit queue safeguards', () => {
         await state.mutate((d) => d, { kind: 'deleteItem', id: 'milk' });
       });
     }
-    expect(state.pending).toBe(12); // offline attempts never drop anything
+    expect(state.pending).toBe(12); // offline attempts never drop anything, however long
   });
 
   it.each([503, 429, 408])('never drops an edit because the server answered %i (busy, not unhappy with the edit)', async (status) => {
@@ -247,23 +246,14 @@ describe('edit queue safeguards', () => {
     expect(root.textContent).toBe('Milk,Tea|1|'); // still shown, still waiting, no message
   });
 
-  it('retries an error that is not an ApiError instead of dropping the edit at once, and gives up after 10 tries', async () => {
-    const addItem = vi.fn().mockRejectedValue(new TypeError('bad'));
-    const root = mount(fake({ addItem }));
+  it('drops an error that is not a server answer at once, and does not call it offline (all network trouble is an ApiError)', async () => {
+    const api = fake({ addItem: vi.fn().mockRejectedValue(new TypeError('bad')) });
+    const root = mount(api);
     await settle();
     await act(async () => {
       await add('i1', 'Tea');
     });
-    expect(state.offline).toBe(false); // not the network
-    expect(state.pending).toBe(1); // but not lost on the first failure either
-    for (let i = 0; i < 8; i++) {
-      goOnline();
-      await settle();
-    }
-    expect(state.pending).toBe(1);
-    goOnline();
-    await settle();
-    expect(addItem).toHaveBeenCalledTimes(10);
+    expect(state.offline).toBe(false);
     expect(root.textContent).toBe('Milk|0|1 change could not be saved');
   });
 
@@ -303,7 +293,7 @@ describe('edit queue safeguards', () => {
     expect(api.sync).toHaveBeenCalled(); // re-synced once the drain ended
   });
 
-  it('restarts the message timer when a new problem arrives', async () => {
+  it('keeps the "could not be saved" message until it is dismissed', async () => {
     const api = fake({ addItem: vi.fn().mockRejectedValue(new ApiError(400, 'no')) });
     const root = mount(api);
     await settle();
@@ -312,14 +302,10 @@ describe('edit queue safeguards', () => {
       await add('i1', 'A');
     });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(5000);
-      await add('i2', 'B');
-      await vi.advanceTimersByTimeAsync(5000);
+      await vi.advanceTimersByTimeAsync(30_000); // well past the old 8 s fade-out
     });
-    expect(root.textContent).toContain('could not be saved'); // 10 s in, but the second problem restarted the 8 s clock
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(4000);
-    });
+    expect(root.textContent).toContain('could not be saved');
+    act(() => state.dismissProblem());
     expect(root.textContent).not.toContain('could not be saved');
   });
 
