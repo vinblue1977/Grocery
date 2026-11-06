@@ -13,6 +13,7 @@ function setup(joinCode: string | null = null, overrides: Partial<Api> = {}) {
   const api = {
     createHousehold: vi.fn().mockResolvedValue(creds),
     join: vi.fn().mockResolvedValue(creds),
+    recover: vi.fn().mockResolvedValue(creds),
     ...overrides,
   } as unknown as Api;
   const onSignedIn = vi.fn();
@@ -85,5 +86,49 @@ describe('Welcome', () => {
     expect(root.querySelector('.error')?.textContent).toContain('already set up');
     expect(onSignedIn).not.toHaveBeenCalled();
     expect((root.querySelector('button[type=submit]') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('signs in with a recovery code from the dedicated form, without touching the theme', async () => {
+    const { api, onSignedIn, root } = setup();
+    await act(() => {
+      (root.querySelector('.link-btn') as HTMLElement).click();
+    });
+    expect(root.textContent).toContain('Recovery code');
+    await type(root, 0, 'New phone');
+    await type(root, 1, ' rec_abcDEF-123456789 ');
+    await submit(root);
+    expect(api.recover).toHaveBeenCalledWith('rec_abcDEF-123456789', 'New phone');
+    expect(api.createHousehold).not.toHaveBeenCalled();
+    expect(onSignedIn).toHaveBeenCalledWith({ ...creds, deviceName: 'New phone' });
+    expect(localStorage.getItem('grocery.theme')).toBeNull();
+  });
+
+  it('routes a recovery code pasted into the invite box to recovery', async () => {
+    const { api, root } = setup();
+    await type(root, 1, 'rec_abcDEF-123456789');
+    await submit(root);
+    expect(api.recover).toHaveBeenCalledWith('rec_abcDEF-123456789', 'iPhone');
+    expect(api.join).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed recovery code locally and explains server refusals', async () => {
+    const recover = vi
+      .fn()
+      .mockRejectedValueOnce(new ApiError(400, 'invalid recovery code'))
+      .mockRejectedValueOnce(new ApiError(429, 'too many wrong codes; try again in an hour'));
+    const { api, root, onSignedIn } = setup(null, { recover });
+    await act(() => {
+      (root.querySelector('.link-btn') as HTMLElement).click();
+    });
+    await type(root, 1, 'nope');
+    await submit(root);
+    expect(root.querySelector('.error')?.textContent).toContain("doesn't look like a recovery code");
+    expect(api.recover).not.toHaveBeenCalled();
+    await type(root, 1, 'rec_abcDEF-123456789');
+    await submit(root);
+    expect(root.querySelector('.error')?.textContent).toContain("isn't valid");
+    await submit(root);
+    expect(root.querySelector('.error')?.textContent).toContain('too many wrong codes');
+    expect(onSignedIn).not.toHaveBeenCalled();
   });
 });

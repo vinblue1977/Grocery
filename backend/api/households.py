@@ -5,11 +5,13 @@ Items (PK / SK):
   H#<hid> / DEVICE#<did>     a signed-in device: name, creation time, hash of its token
   TOKEN#<sha256> / TOKEN     token lookup: which household and device a bearer token belongs to
   INVITE#<sha256> / INVITE   a single-use invite code with an expiry (`ttl`, also a DynamoDB TTL attribute)
+  H#<hid> / META#RECOVERY    hash of the household's recovery code, plus a counter of recent wrong guesses
 
 Tokens and invite codes are 256-bit random values, so a plain SHA-256 is enough; only the hash is stored.
 """
 
 import hashlib
+import hmac
 import secrets
 import time
 import uuid
@@ -20,6 +22,8 @@ from botocore.exceptions import ClientError
 
 INVITE_LIFETIME_SECONDS = 24 * 3600
 MAX_NAME_LENGTH = 40
+MAX_RECOVERY_FAILURES = 20
+RECOVERY_LOCK_SECONDS = 3600
 
 
 class HouseholdExists(Exception):
@@ -28,6 +32,14 @@ class HouseholdExists(Exception):
 
 class InvalidInvite(Exception):
     """The invite code is unknown, used or expired."""
+
+
+class InvalidRecovery(Exception):
+    """The recovery code is unknown, blank or malformed."""
+
+
+class TooManyAttempts(Exception):
+    """Too many wrong recovery codes lately; try again later."""
 
 
 class NotFound(Exception):
@@ -184,3 +196,65 @@ def revoke_device(table: Any, session: Session, device_id: str) -> None:
     # The token item is what grants access, so it goes first.
     table.delete_item(Key={"PK": f"TOKEN#{device['tokenHash']}", "SK": "TOKEN"})
     table.delete_item(Key=key)
+
+
+def _recovery_key(household_id: str) -> dict[str, str]:
+    return {"PK": f"H#{household_id}", "SK": "META#RECOVERY"}
+
+
+def create_recovery(table: Any, session: Session, now: float | None = None) -> dict[str, str]:
+    """Makes a new recovery code, replacing any older one. Only its hash is stored; the code is returned once."""
+    code = "rec_" + secrets.token_urlsafe(20)
+    table.put_item(Item={**_recovery_key(session.household_id), "codeHash": _hash(code), "createdAt": int(now or time.time())})
+    return {"code": code}
+
+
+def _count_failure(table: Any, key: dict[str, str], now: int) -> None:
+    names = {"#f": "failures", "#s": "failStart"}
+    try:  # inside the current window: just count
+        table.update_item(
+            Key=key,
+            UpdateExpression="SET #f = if_not_exists(#f, :zero) + :one",
+            ConditionExpression="attribute_exists(PK) AND #s > :cutoff",
+            ExpressionAttributeNames=names,
+            ExpressionAttributeValues={":zero": 0, ":one": 1, ":cutoff": now - RECOVERY_LOCK_SECONDS},
+        )
+    except ClientError as err:
+        if err.response["Error"]["Code"] != "ConditionalCheckFailedException":
+            raise
+        try:  # first failure, or the old window has ended: start a new one
+            table.update_item(
+                Key=key,
+                UpdateExpression="SET #f = :one, #s = :now",
+                ConditionExpression="attribute_exists(PK)",
+                ExpressionAttributeNames=names,
+                ExpressionAttributeValues={":one": 1, ":now": now},
+            )
+        except ClientError as err2:
+            if err2.response["Error"]["Code"] != "ConditionalCheckFailedException":
+                raise
+
+
+def recover(table: Any, code: object, device_name: str, now: float | None = None) -> dict[str, str]:
+    """Signs in a new device with the household's recovery code. The code stays valid; a new one replaces it."""
+    when = int(now if now is not None else time.time())
+    household = table.get_item(Key={"PK": "APP", "SK": "HOUSEHOLD"}, ConsistentRead=True).get("Item")
+    household_id = str(household["householdId"]) if household else ""
+    row = table.get_item(Key=_recovery_key(household_id), ConsistentRead=True).get("Item") if household else None
+    if (
+        row
+        and int(row.get("failures", 0)) >= MAX_RECOVERY_FAILURES
+        and int(row.get("failStart", 0)) > when - RECOVERY_LOCK_SECONDS
+    ):
+        raise TooManyAttempts
+    text = code if isinstance(code, str) and len(code) <= 200 else ""
+    expected = str(row["codeHash"]) if row else "0" * 64
+    matches = hmac.compare_digest(_hash(text), expected)  # always hashes and compares, so every failure costs the same
+    if not (row and text and matches):
+        if row:
+            _count_failure(table, _recovery_key(household_id), when)
+        raise InvalidRecovery
+    device_ops, creds = _device_ops(table, household_id)
+    if not transact(table, _named(device_ops, device_name)):
+        raise InvalidRecovery
+    return creds

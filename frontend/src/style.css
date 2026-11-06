@@ -31,6 +31,7 @@ button { font: inherit; }
 .row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .row:last-child { border-bottom: 0; }
 .link { word-break: break-all; font-size: 12px; background: var(--bg); padding: 8px; border-radius: 8px; }
+.recovery { font-family: ui-monospace, Menlo, monospace; font-size: 14px; user-select: all; }
 .error { color: #c0392b; font-size: 14px; }
 .tip { font-size: 13px; background: var(--accl); color: var(--ink); padding: 10px; border-radius: 10px; }
 .tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; }

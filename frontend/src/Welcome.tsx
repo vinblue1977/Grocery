@@ -28,12 +28,36 @@ function isHomeScreenApp(): boolean {
 export function Welcome({ api, joinCode, onSignedIn }: Props) {
   const [name, setName] = useState('');
   const [pasted, setPasted] = useState('');
+  const [recovering, setRecovering] = useState(false);
+  const [recoveryCode, setRecoveryCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   const submit = async (event: Event) => {
     event.preventDefault();
     const deviceName = name.trim() || defaultName();
+    const recoveryInput = recovering ? recoveryCode.trim() : pasted.trim().startsWith('rec_') ? pasted.trim() : '';
+    if (recovering || recoveryInput) {
+      if (!/^rec_[\w-]{8,100}$/.test(recoveryInput)) {
+        setError("That doesn't look like a recovery code");
+        return;
+      }
+      setBusy(true);
+      setError('');
+      try {
+        onSignedIn(toSession(await api.recover(recoveryInput, deviceName), deviceName)); // keeps this device's theme choice
+      } catch (err) {
+        setError(
+          err instanceof ApiError && err.status === 400
+            ? "That recovery code isn't valid. Check it and try again."
+            : err instanceof Error
+              ? err.message
+              : 'Something went wrong',
+        );
+        setBusy(false);
+      }
+      return;
+    }
     const wantsToJoin = joinCode !== null || pasted.length > 0; // any pasted text, even blanks, means "join", never "create"
     const code = joinCode ?? parseInviteInput(pasted);
     if (wantsToJoin && !code) {
@@ -80,7 +104,19 @@ export function Welcome({ api, joinCode, onSignedIn }: Props) {
           <span class="muted">Your name</span>
           <input value={name} maxLength={40} placeholder="e.g. Vinod" onInput={(e) => setName(e.currentTarget.value)} />
         </label>
-        {!joinCode && (
+        {recovering && (
+          <label class="field">
+            <span class="muted">Recovery code</span>
+            <input
+              value={recoveryCode}
+              placeholder="rec_…"
+              autocapitalize="off"
+              autocomplete="off"
+              onInput={(e) => setRecoveryCode(e.currentTarget.value)}
+            />
+          </label>
+        )}
+        {!joinCode && !recovering && (
           <label class="field">
             <span class="muted">Already set up? Paste an invite link or code</span>
             <input value={pasted} placeholder="Leave empty to create a new household" onInput={(e) => setPasted(e.currentTarget.value)} />
@@ -88,8 +124,20 @@ export function Welcome({ api, joinCode, onSignedIn }: Props) {
         )}
         {error && <p class="error">{error}</p>}
         <button class="primary" type="submit" disabled={busy}>
-          {busy ? 'Please wait…' : joinCode || pasted ? 'Join' : 'Create household'}
+          {busy ? 'Please wait…' : recovering || pasted.trim().startsWith('rec_') ? 'Sign in' : joinCode || pasted ? 'Join' : 'Create household'}
         </button>
+        {!joinCode && (
+          <button
+            type="button"
+            class="link-btn"
+            onClick={() => {
+              setRecovering(!recovering);
+              setError('');
+            }}
+          >
+            {recovering ? 'Back' : 'Lost access? Use a recovery code'}
+          </button>
+        )}
       </form>
     </main>
   );

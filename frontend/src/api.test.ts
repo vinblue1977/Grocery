@@ -17,6 +17,20 @@ describe('api', () => {
     expect(init.body).toBe(JSON.stringify({ code: 'CODE1234', deviceName: 'Yaso' }));
   });
 
+  it('creates and uses a recovery code', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(ok({ code: 'rec_x' }, 201))
+      .mockResolvedValueOnce(ok({ householdId: 'h', deviceId: 'd', token: 't' }, 201));
+    const api = createApi('https://x.test', () => 'tok', fetchMock);
+    expect(await api.createRecovery()).toEqual({ code: 'rec_x' });
+    await api.recover('rec_x', 'Phone');
+    const [url, init] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://x.test/recovery');
+    expect(url).toBe('https://x.test/recover');
+    expect(init.body).toBe(JSON.stringify({ code: 'rec_x', deviceName: 'Phone' }));
+  });
+
   it('cuts off a request that hangs and reports it as offline (status 0)', async () => {
     vi.useFakeTimers();
     const hang = vi.fn().mockImplementation(

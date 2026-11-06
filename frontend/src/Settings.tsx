@@ -23,6 +23,8 @@ export function Settings({ api, lists, session, onSignedOut, onBack }: Props) {
   const [devices, setDevices] = useState<Device[]>([]);
   const [link, setLink] = useState('');
   const [note, setNote] = useState('');
+  const [recovery, setRecovery] = useState('');
+  const [confirmingRecovery, setConfirmingRecovery] = useState(false);
 
   const refresh = () =>
     api.devices().then(setDevices, (err: unknown) => {
@@ -58,6 +60,26 @@ export function Settings({ api, lists, session, onSignedOut, onBack }: Props) {
       setNote('Link copied');
     } catch {
       setNote('Press and hold the link to copy it');
+    }
+  };
+
+  const createRecovery = async () => {
+    if (!confirmingRecovery) return setConfirmingRecovery(true);
+    setConfirmingRecovery(false);
+    setNote('');
+    try {
+      setRecovery((await api.createRecovery()).code);
+    } catch {
+      setNote('Could not create a recovery code');
+    }
+  };
+
+  const copyRecovery = async () => {
+    try {
+      await navigator.clipboard.writeText(recovery);
+      setNote('Recovery code copied');
+    } catch {
+      setNote('Press and hold the code to copy it');
     }
   };
 
@@ -148,6 +170,26 @@ export function Settings({ api, lists, session, onSignedOut, onBack }: Props) {
             <button type="button" onClick={() => void copy()}>
               Copy link
             </button>
+          </>
+        )}
+      </section>
+
+      <section class="card">
+        <strong>Recovery code</strong>
+        <p class="muted">
+          If you ever lose all your devices, this code gets you back in. Keep it somewhere safe, like a password manager. Anyone
+          with it can sign in to your household.
+        </p>
+        <button type="button" class={confirmingRecovery ? 'danger' : undefined} onClick={() => void createRecovery()}>
+          {confirmingRecovery ? 'This replaces any older code. Create it?' : 'Create a recovery code'}
+        </button>
+        {recovery && (
+          <>
+            <p class="link recovery">{recovery}</p>
+            <button type="button" onClick={() => void copyRecovery()}>
+              Copy code
+            </button>
+            <p class="tip">Save it now. It will not be shown again.</p>
           </>
         )}
       </section>
