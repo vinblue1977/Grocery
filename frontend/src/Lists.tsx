@@ -19,16 +19,37 @@ interface Props {
   api: Api;
   lists: ListsState;
   session: Session;
+  onOpenSettings: () => void;
 }
 
-export function Lists({ api, lists, session }: Props) {
+export function Lists({ api, lists, session, onOpenSettings }: Props) {
   const [wanted, setWanted] = useState<string | null>(remembered);
   const [text, setText] = useState('');
   const [addingStore, setAddingStore] = useState(false);
   const [storeName, setStoreName] = useState('');
   const { data, error, mutate } = lists;
 
-  if (!data) return <main class="app">{error ? <p class="error">{error}</p> : <p class="muted">Loading…</p>}</main>;
+  const header = (
+    <header class="top">
+      <h1>Grocery</h1>
+      <button type="button" class="icon-btn" aria-label="Settings" onClick={onOpenSettings}>
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="M4 7h10M18 7h2M4 17h2M10 17h10" />
+          <circle cx="16" cy="7" r="2" />
+          <circle cx="8" cy="17" r="2" />
+        </svg>
+      </button>
+    </header>
+  );
+
+  if (!data) {
+    return (
+      <main class="app">
+        {header}
+        {error ? <p class="error">{error}</p> : <p class="muted">Loading…</p>}
+      </main>
+    );
+  }
 
   const storeId = pickStore(data.stores, wanted);
   const { toBuy, inCart } = storeId ? forStore(data.items, storeId) : { toBuy: [], inCart: [] };
@@ -66,7 +87,7 @@ export function Lists({ api, lists, session }: Props) {
 
   return (
     <main class="app">
-      <h1>Grocery</h1>
+      {header}
       <div class="tabs" role="tablist">
         {data.stores.map((store) => (
           <button key={store.id} type="button" role="tab" class="tab" aria-selected={store.id === storeId} onClick={() => choose(store.id)}>

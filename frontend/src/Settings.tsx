@@ -13,9 +13,10 @@ interface Props {
   lists: ListsState;
   session: Session;
   onSignedOut: () => void;
+  onBack: () => void;
 }
 
-export function Settings({ api, lists, session, onSignedOut }: Props) {
+export function Settings({ api, lists, session, onSignedOut, onBack }: Props) {
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [pref, setPref] = useState<ThemePref>(loadPref);
@@ -73,7 +74,12 @@ export function Settings({ api, lists, session, onSignedOut }: Props) {
 
   return (
     <main class="app">
-      <h1>Settings</h1>
+      <header class="top left">
+        <button type="button" class="back" onClick={onBack}>
+          ‹ Lists
+        </button>
+        <h1>Settings</h1>
+      </header>
       <p class="muted">Signed in as {session.deviceName}</p>
 
       <section class="card">

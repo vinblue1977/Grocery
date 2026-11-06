@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
 import { createApi, type Api } from './api';
 import { parseJoinCode } from './invite';
 import { clearSession, loadSession, saveSession, type Session } from './session';
@@ -35,24 +35,28 @@ export function App() {
   return <Signed api={api} session={session} onSignedOut={signOut} />;
 }
 
-function Signed({ api, session, onSignedOut }: { api: Api; session: Session; onSignedOut: () => void }) {
+export function Signed({ api, session, onSignedOut }: { api: Api; session: Session; onSignedOut: () => void }) {
   const [tab, setTab] = useState<'lists' | 'settings'>('lists');
   const lists = useLists(api, onSignedOut);
+
+  // Settings gets a history entry, so the iOS edge-swipe and the Android back button return to the list instead of leaving.
+  useEffect(() => {
+    const back = () => setTab('lists');
+    window.addEventListener('popstate', back);
+    return () => window.removeEventListener('popstate', back);
+  }, []);
+  const openSettings = () => {
+    history.pushState({ tab: 'settings' }, '');
+    setTab('settings');
+  };
+
   return (
     <>
-      {tab === 'lists' ? (
-        <Lists api={api} lists={lists} session={session} />
-      ) : (
-        <Settings api={api} lists={lists} session={session} onSignedOut={onSignedOut} />
-      )}
-      <nav class="nav">
-        <button type="button" aria-current={tab === 'lists'} onClick={() => setTab('lists')}>
-          🛒<span>Lists</span>
-        </button>
-        <button type="button" aria-current={tab === 'settings'} onClick={() => setTab('settings')}>
-          ⚙️<span>Settings</span>
-        </button>
-      </nav>
+      {/* Kept mounted while Settings is open, so a half-typed item survives a trip to Settings. */}
+      <div hidden={tab !== 'lists'}>
+        <Lists api={api} lists={lists} session={session} onOpenSettings={openSettings} />
+      </div>
+      {tab === 'settings' && <Settings api={api} lists={lists} session={session} onSignedOut={onSignedOut} onBack={() => history.back()} />}
     </>
   );
 }
