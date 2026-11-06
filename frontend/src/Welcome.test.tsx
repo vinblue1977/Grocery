@@ -93,7 +93,7 @@ describe('Welcome', () => {
     await act(() => {
       (root.querySelector('.link-btn') as HTMLElement).click();
     });
-    expect(root.textContent).toContain('Recovery code');
+    expect(root.textContent).toContain('Get back in');
     await type(root, 0, 'New phone');
     await type(root, 1, ' rec_abcDEF-123456789 ');
     await submit(root);
@@ -103,19 +103,18 @@ describe('Welcome', () => {
     expect(localStorage.getItem('grocery.theme')).toBeNull();
   });
 
-  it('routes a recovery code pasted into the invite box to recovery', async () => {
-    const { api, root } = setup();
+  it('does not treat a recovery code in the invite box as a recovery, and hints where to go', async () => {
+    const { api, root } = setup(null, { join: vi.fn().mockRejectedValue(new ApiError(404, 'invite is invalid or expired')) });
     await type(root, 1, 'rec_abcDEF-123456789');
     await submit(root);
-    expect(api.recover).toHaveBeenCalledWith('rec_abcDEF-123456789', 'iPhone');
-    expect(api.join).not.toHaveBeenCalled();
+    expect(api.recover).not.toHaveBeenCalled();
+    expect(root.querySelector('.error')?.textContent).toContain('tap Lost access?');
   });
 
-  it('rejects a malformed recovery code locally and explains server refusals', async () => {
+  it('rejects a malformed recovery code locally and explains a refused one', async () => {
     const recover = vi
       .fn()
-      .mockRejectedValueOnce(new ApiError(400, 'invalid recovery code'))
-      .mockRejectedValueOnce(new ApiError(429, 'too many wrong codes; try again in an hour'));
+      .mockRejectedValueOnce(new ApiError(400, 'invalid recovery code'));
     const { api, root, onSignedIn } = setup(null, { recover });
     await act(() => {
       (root.querySelector('.link-btn') as HTMLElement).click();
@@ -127,8 +126,6 @@ describe('Welcome', () => {
     await type(root, 1, 'rec_abcDEF-123456789');
     await submit(root);
     expect(root.querySelector('.error')?.textContent).toContain("isn't valid");
-    await submit(root);
-    expect(root.querySelector('.error')?.textContent).toContain('too many wrong codes');
     expect(onSignedIn).not.toHaveBeenCalled();
   });
 });

@@ -57,10 +57,16 @@ describe('recovery code card', () => {
     await flush();
     expect(root.textContent).toContain('Press and hold the code');
 
-    const failing = await setup(vi.fn().mockRejectedValue(new Error('x')));
-    await act(() => failing.button('Create a recovery code').click());
-    await act(() => failing.button('replaces any older code').click());
+    const createRecovery = vi.fn().mockResolvedValueOnce({ code: 'rec_first1234' }).mockRejectedValueOnce(new Error('x'));
+    const again = await setup(createRecovery);
+    await act(() => again.button('Create a recovery code').click());
+    await act(() => again.button('replaces any older code').click());
     await flush();
-    expect(failing.root.textContent).toContain('Could not create a recovery code');
+    expect(again.root.querySelector('.recovery')?.textContent).toBe('rec_first1234');
+    await act(() => again.button('Create a recovery code').click());
+    await act(() => again.button('replaces any older code').click());
+    await flush();
+    expect(again.root.querySelector('.recovery')).toBeNull(); // the possibly dead code is gone
+    expect(again.root.textContent).toContain('the old code might no longer work');
   });
 });

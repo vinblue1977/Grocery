@@ -1,6 +1,5 @@
 import hashlib
 import json
-import time
 
 from test_api import call, create
 
@@ -61,18 +60,24 @@ def test_recovery_code_is_stored_only_as_a_hash(table):
     assert code not in json.dumps(table.scan()["Items"], default=str)
 
 
-def test_too_many_wrong_recovery_codes_lock_it_for_an_hour(table, monkeypatch):
+def test_wrong_guesses_never_lock_out_the_real_code(table):
     me = create()
     code = call("POST", "/recovery", token=me["token"])[1]["code"]
-    for _ in range(households.MAX_RECOVERY_FAILURES):
+    for _ in range(30):
         assert call("POST", "/recover", {"code": "rec_guess"})[0] == 400
-    assert call("POST", "/recover", {"code": "rec_guess"})[0] == 429
-    assert call("POST", "/recover", {"code": code})[0] == 429  # even the right code waits
-    later = time.time() + households.RECOVERY_LOCK_SECONDS + 5
-    monkeypatch.setattr(households.time, "time", lambda: later)
     assert call("POST", "/recover", {"code": code})[0] == 201
-    assert call("POST", "/recover", {"code": "rec_guess"})[0] == 400  # a new window starts at 1, not 21
-    for _ in range(households.MAX_RECOVERY_FAILURES):  # creating a new code clears the counter
-        call("POST", "/recover", {"code": "rec_guess"})
-    new = call("POST", "/recovery", token=me["token"])[1]["code"]
-    assert call("POST", "/recover", {"code": new})[0] == 201
+
+
+def test_rotating_the_code_between_check_and_write_mints_no_device(table, monkeypatch):
+    me = create()
+    old = call("POST", "/recovery", token=me["token"])[1]["code"]
+    real_transact = households.transact
+
+    def rotate_then_write(tbl, ops):
+        call("POST", "/recovery", token=me["token"])  # someone replaces the code after it was verified
+        return real_transact(tbl, ops)
+
+    monkeypatch.setattr(households, "transact", rotate_then_write)
+    assert call("POST", "/recover", {"code": old, "deviceName": "Late"}) == (400, {"error": "invalid recovery code"})
+    monkeypatch.undo()
+    assert len(call("GET", "/devices", token=me["token"])[1]["devices"]) == 1

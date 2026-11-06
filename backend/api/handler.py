@@ -137,8 +137,6 @@ def handler(event: dict[str, Any], _context: object) -> dict[str, Any]:
             creds = households.recover(table, body.get("code"), households.clean_name(body.get("deviceName"), "Device"))
         except households.InvalidRecovery:
             return _response(400, {"error": "invalid recovery code"})
-        except households.TooManyAttempts:
-            return _response(429, {"error": "too many wrong codes; try again in an hour"})
         return _response(201, creds)
     session = households.authenticate(table, (event.get("headers") or {}).get("authorization"))
     if session is None:

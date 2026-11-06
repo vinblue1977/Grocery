@@ -67,10 +67,11 @@ export function Settings({ api, lists, session, onSignedOut, onBack }: Props) {
     if (!confirmingRecovery) return setConfirmingRecovery(true);
     setConfirmingRecovery(false);
     setNote('');
+    setRecovery(''); // never leave an old code on screen while a replacement may be going through
     try {
       setRecovery((await api.createRecovery()).code);
     } catch {
-      setNote('Could not create a recovery code');
+      setNote('Could not create a recovery code. If it may have gone through, the old code might no longer work: try again.');
     }
   };
 
@@ -178,7 +179,7 @@ export function Settings({ api, lists, session, onSignedOut, onBack }: Props) {
         <strong>Recovery code</strong>
         <p class="muted">
           If you ever lose all your devices, this code gets you back in. Keep it somewhere safe, like a password manager. Anyone
-          with it can sign in to your household.
+          with it can sign in to your household. Lost or sold a phone? Remove it under Devices, then create a new code here.
         </p>
         <button type="button" class={confirmingRecovery ? 'danger' : undefined} onClick={() => void createRecovery()}>
           {confirmingRecovery ? 'This replaces any older code. Create it?' : 'Create a recovery code'}
