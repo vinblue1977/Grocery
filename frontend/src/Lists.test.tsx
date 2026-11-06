@@ -120,9 +120,13 @@ describe('Lists screen', () => {
   it('adds what is in the field even if no input event fired yet (iPhone autocorrect)', async () => {
     const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
     await flush();
-    (root.querySelector('input') as HTMLInputElement).value = 'Tea';
+    const input = root.querySelector('input') as HTMLInputElement;
+    input.value = 'Tea';
     await click(root.querySelector('[aria-label="Add item"]'));
     expect(api.addItem).toHaveBeenCalledWith('c', 'Tea');
+    expect(input.value).toBe(''); // cleared even though the state never changed, so a second tap can't add a duplicate
+    await click(root.querySelector('[aria-label="Add item"]'));
+    expect(api.addItem).toHaveBeenCalledTimes(1);
   });
 
   it('deletes an item and clears the cart', async () => {
