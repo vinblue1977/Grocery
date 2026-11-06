@@ -22,15 +22,17 @@ const flush = () =>
   });
 
 let api: Api;
+let photo: File;
 const onClose = vi.fn();
 const onAdded = vi.fn();
 
-async function open(scanResult: Promise<ScannedItem[]> = Promise.resolve(found)) {
+async function open(scanResult: Promise<ScannedItem[]> = Promise.resolve(found), shown = stores, current: string | null = 'p') {
   api = { scan: vi.fn().mockReturnValue(scanResult), addItems: vi.fn().mockResolvedValue({ added: 3, skipped: 0 }) } as unknown as Api;
+  photo = new File(['x'], 'list.jpg');
   const root = document.createElement('div');
   document.body.append(root);
   act(() => {
-    render(<ScanSheet api={api} file={new File(['x'], 'list.jpg')} stores={stores} currentStoreId="p" onClose={onClose} onAdded={onAdded} />, root);
+    render(<ScanSheet api={api} file={photo} stores={shown} currentStoreId={current} onClose={onClose} onAdded={onAdded} />, root);
   });
   await flush();
   return root;
@@ -93,6 +95,30 @@ describe('ScanSheet', () => {
     const root = await open(Promise.resolve([]));
     expect(root.textContent).toContain('No items found');
     expect((root.querySelector('.primary') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('scans once per photo even when the list refreshes underneath it, and keeps the person\'s edits', async () => {
+    const root = await open();
+    const name = root.querySelector('input[aria-label="Item name"]') as HTMLInputElement;
+    name.value = 'Fixed name';
+    await act(() => {
+      name.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    // Every poll hands the sheet a new `stores` array (same content, new identity).
+    for (let poll = 0; poll < 3; poll += 1) {
+      act(() => {
+        render(<ScanSheet api={api} file={photo} stores={[...stores]} currentStoreId="p" onClose={onClose} onAdded={onAdded} />, root);
+      });
+      await flush();
+    }
+    expect(api.scan).toHaveBeenCalledTimes(1);
+    expect((root.querySelector('input[aria-label="Item name"]') as HTMLInputElement).value).toBe('Fixed name');
+  });
+
+  it('does not scan (and spend) when there is no store to add to', async () => {
+    const root = await open(Promise.resolve(found), [], null);
+    expect(root.textContent).toContain('Add a store first');
+    expect(api.scan).not.toHaveBeenCalled();
   });
 
   it('shows the error when the photo cannot be read, and Cancel closes', async () => {

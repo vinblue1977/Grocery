@@ -39,7 +39,11 @@ export async function shrinkPhoto(file: File): Promise<string> {
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(image.naturalWidth * scale);
   canvas.height = Math.round(image.naturalHeight * scale);
-  canvas.getContext('2d')?.drawImage(image, 0, 0, canvas.width, canvas.height);
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('This browser could not prepare the photo');
+  context.fillStyle = '#fff'; // JPEG has no transparency: a transparent PNG would otherwise turn black
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
   for (const quality of [0.85, 0.7, 0.55, 0.4]) {
     const blob = await toBlob(canvas, quality);
     if (blob.size <= MAX_BYTES || quality === 0.4) return toBase64(blob);

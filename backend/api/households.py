@@ -53,7 +53,7 @@ def clean_name(value: object, fallback: str) -> str:
     return name[:MAX_NAME_LENGTH] or fallback
 
 
-def _put(table: Any, item: dict[str, Any], condition: str | None = None) -> dict[str, Any]:
+def put_op(table: Any, item: dict[str, Any], condition: str | None = None) -> dict[str, Any]:
     # The resource client converts plain Python values to DynamoDB types, including inside transactions.
     op: dict[str, Any] = {"TableName": table.name, "Item": item}
     if condition:
@@ -61,7 +61,7 @@ def _put(table: Any, item: dict[str, Any], condition: str | None = None) -> dict
     return {"Put": op}
 
 
-def _transact(table: Any, ops: list[dict[str, Any]]) -> bool:
+def transact(table: Any, ops: list[dict[str, Any]]) -> bool:
     """All-or-nothing write. Returns False when a condition failed, so callers can map that to their own error."""
     try:
         table.meta.client.transact_write_items(TransactItems=ops)
@@ -77,7 +77,7 @@ def _device_ops(table: Any, household_id: str) -> tuple[list[dict[str, Any]], di
     device_id = uuid.uuid4().hex
     token = secrets.token_urlsafe(32)
     ops = [
-        _put(
+        put_op(
             table,
             {
                 "PK": f"H#{household_id}",
@@ -88,7 +88,7 @@ def _device_ops(table: Any, household_id: str) -> tuple[list[dict[str, Any]], di
                 "createdAt": time.time_ns() // 1_000_000,  # milliseconds, so devices created together keep their order
             },
         ),
-        _put(table, {"PK": f"TOKEN#{_hash(token)}", "SK": "TOKEN", "householdId": household_id, "deviceId": device_id}),
+        put_op(table, {"PK": f"TOKEN#{_hash(token)}", "SK": "TOKEN", "householdId": household_id, "deviceId": device_id}),
     ]
     return ops, {"householdId": household_id, "deviceId": device_id, "token": token}
 
@@ -102,12 +102,12 @@ def create_household(table: Any, device_name: str) -> dict[str, str]:
     """Claims the single household and signs in its first device in one transaction."""
     household_id = uuid.uuid4().hex
     device_ops, creds = _device_ops(table, household_id)
-    claim = _put(
+    claim = put_op(
         table,
         {"PK": "APP", "SK": "HOUSEHOLD", "householdId": household_id, "createdAt": int(time.time())},
         condition="attribute_not_exists(PK)",
     )
-    if not _transact(table, [claim, *_named(device_ops, device_name)]):
+    if not transact(table, [claim, *_named(device_ops, device_name)]):
         raise HouseholdExists
     return creds
 
@@ -137,7 +137,7 @@ def join(table: Any, code: str, device_name: str, now: float | None = None) -> d
             "ExpressionAttributeValues": {":now": when},
         }
     }
-    if not _transact(table, [spend, *_named(device_ops, device_name)]):
+    if not transact(table, [spend, *_named(device_ops, device_name)]):
         raise InvalidInvite  # someone else spent it first
     return creds
 

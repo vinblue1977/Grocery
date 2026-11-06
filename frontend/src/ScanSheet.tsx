@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { ApiError, type Api, type NewItem, type Store } from './api';
 import { shrinkPhoto } from './scan';
 
@@ -15,7 +15,7 @@ interface Props {
   api: Api;
   file: File;
   stores: Store[];
-  currentStoreId: string;
+  currentStoreId: string | null;
   onClose: () => void;
   onAdded: (result: { added: number; skipped: number }) => void;
 }
@@ -25,20 +25,31 @@ export function ScanSheet({ api, file, stores, currentStoreId, onClose, onAdded 
   const [rows, setRows] = useState<Row[] | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  // The list is polled every few seconds and hands down a new `stores` array each time. The scan is paid for, so it must run
+  // once per photo and read the latest stores from a ref, not restart whenever they change.
+  const latest = useRef({ stores, currentStoreId });
+  latest.current = { stores, currentStoreId };
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      const first = latest.current.stores[0];
+      if (!first) {
+        setError('Add a store first, then scan your list.');
+        return;
+      }
       try {
         const found = await api.scan(await shrinkPhoto(file));
         if (cancelled) return;
-        const known = new Set(stores.map((s) => s.id));
+        const { stores: all, currentStoreId: current } = latest.current;
+        const fallback = all.some((s) => s.id === current) && current ? current : first.id;
+        const known = new Set(all.map((s) => s.id));
         setRows(
           found.map((item, key) => ({
             key,
             name: item.name,
             note: item.note,
-            storeId: item.storeId && known.has(item.storeId) ? item.storeId : currentStoreId,
+            storeId: item.storeId && known.has(item.storeId) ? item.storeId : fallback,
             keep: !item.unsure,
             unsure: item.unsure,
           })),
@@ -50,7 +61,7 @@ export function ScanSheet({ api, file, stores, currentStoreId, onClose, onAdded 
     return () => {
       cancelled = true;
     };
-  }, [api, file, stores, currentStoreId]);
+  }, [api, file]);
 
   const change = (key: number, patch: Partial<Row>) => setRows((all) => all?.map((r) => (r.key === key ? { ...r, ...patch } : r)) ?? null);
   const chosen = (rows ?? []).filter((r) => r.keep && r.name.trim());

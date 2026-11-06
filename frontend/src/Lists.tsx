@@ -205,7 +205,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
           e.currentTarget.value = ''; // so choosing the same photo again still fires
         }}
       />
-      {photo && storeId && (
+      {photo && (
         <ScanSheet
           api={api}
           file={photo}
@@ -216,6 +216,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
             setPhoto(null);
             setNotice(`Added ${added} item${added === 1 ? '' : 's'}${skipped ? `, ${skipped} already on the list` : ''}`);
             void lists.refresh();
+            setTimeout(() => setNotice(''), 6000);
           }}
         />
       )}

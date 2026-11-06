@@ -83,8 +83,8 @@ def _route(
     if method == "POST" and len(parts) == 3 and parts[0] == "stores" and parts[2] == "clear":
         return _response(200, {"removed": lists.clear_checked(table, session, parts[1])})
     if (method, path) == ("POST", "/scan"):
-        stores = lists.sync(table, session)["stores"]
-        return _response(200, {"items": scan.read_list(table, session, body.get("image"), stores)})
+        image = scan.decode_image(body.get("image"))  # cheap checks first: a bad photo costs no reads and no scan
+        return _response(200, {"items": scan.read_list(table, session, image, lists.list_stores(table, session))})
     if (method, path) == ("POST", "/items/bulk"):
         return _response(201, lists.add_items(table, session, body.get("items"), _device_name(table, session)))
     if (method, path) == ("POST", "/items"):
