@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import type { Api } from './api';
-import { forStore, pickStore, suggestionsFor, withChecked, withNewItem, withNewStore, withoutChecked, withoutFrequent, withoutItem, withPinned } from './listState';
+import type { Api, Item } from './api';
+import { Celebration } from './Celebration';
+import { emojiFor } from './emoji';
 import { newId } from './ids';
+import { arrivalFromOthers } from './news';
+import { avatarColor, firstWord, greeting, initial } from './people';
+import { forStore, isLastToBuy, nextStore, pickStore, suggestionsFor, withChecked, withNewItem, withNewStore, withoutChecked, withoutFrequent, withoutItem, withPinned } from './listState';
 import type { Session } from './session';
 import { ScanSheet } from './ScanSheet';
 import type { ListsState } from './useLists';
@@ -9,6 +13,9 @@ import type { ListsState } from './useLists';
 const changes = (n: number) => `${n} change${n === 1 ? '' : 's'}`;
 
 const LAST_STORE = 'grocery.store';
+const TOAST_MS = 5000;
+const FRESH_MS = 4000;
+const CLEARED_MS = 6000;
 
 function remembered(): string | null {
   try {
@@ -33,6 +40,17 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
   const [storeName, setStoreName] = useState('');
   const [photo, setPhoto] = useState<File | null>(null);
   const [notice, setNotice] = useState('');
+  const [toast, setToast] = useState<{ text: string; storeId?: string } | null>(null);
+  const [fresh, setFresh] = useState<string[]>([]); // ids another person just added, highlighted for a moment
+  const [celebrating, setCelebrating] = useState<string | null>(null); // store whose last item was just ticked
+  const [cleared, setCleared] = useState<string | null>(null); // store whose cart was just cleared
+  const [popped, setPopped] = useState<Set<string>>(new Set()); // items just ticked, for the pop animation
+  const seen = useRef<Item[] | null>(null); // items at the previous sync; null until the first load
+  const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const freshTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const clearedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const popTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const picker = useRef<HTMLInputElement>(null);
   const itemInput = useRef<HTMLInputElement>(null);
   const storeInput = useRef<HTMLInputElement>(null);
@@ -54,9 +72,50 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
     if (addingStore) storeInput.current?.focus(); // once, when the box opens; not on every refresh
   }, [addingStore]);
 
+  const say = (text: string, storeId?: string) => {
+    clearTimeout(toastTimer.current);
+    setToast({ text, storeId });
+    toastTimer.current = setTimeout(() => setToast(null), TOAST_MS);
+  };
+
+  useEffect(() => {
+    const pops = popTimers.current;
+    return () => {
+      for (const t of [toastTimer, freshTimer, clearedTimer, noticeTimer]) clearTimeout(t.current);
+      for (const t of pops.values()) clearTimeout(t);
+    };
+  }, []);
+
+  // The celebration only belongs to a store that is still empty of to-buy items. A tick waiting offline still celebrates; one the
+  // queue gave up on (`problem`) is rolled back, so the card goes.
+  useEffect(() => {
+    if (celebrating && (problem || data?.items.some((i) => i.storeId === celebrating && !i.checked))) setCelebrating(null);
+  }, [data, problem, celebrating]);
+
+  useEffect(() => {
+    if (!data) return;
+    const before = seen.current;
+    seen.current = data.items;
+    if (!before) return; // the first load is not news
+    const arrival = arrivalFromOthers(before, data.items, session.deviceName, Date.now());
+    if (!arrival) return;
+    const store = data.stores.find((s) => s.id === arrival.storeId)?.name ?? 'the list';
+    const where = arrival.storeCount === 1 ? ` to ${store}` : '';
+    say(`${arrival.by} added ${arrival.count} item${arrival.count === 1 ? '' : 's'}${where}`, arrival.storeId);
+    setFresh((old) => [...old, ...arrival.ids]); // overlapping batches merge and share one timer
+    clearTimeout(freshTimer.current);
+    freshTimer.current = setTimeout(() => setFresh([]), FRESH_MS);
+  }, [data]);
+
+  const hi = greeting(new Date().getHours(), session.deviceName);
   const header = (
     <header class="top">
-      <h1>Grocery</h1>
+      <div>
+        <h1>Grocery</h1>
+        <div class="hi">
+          {hi.text} <span aria-hidden="true">{hi.emoji}</span>
+        </div>
+      </div>
       <button type="button" class="icon-btn" aria-label="Settings" onClick={onOpenSettings}>
         <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
           <path d="M4 7h10M18 7h2M4 17h2M10 17h10" />
@@ -79,10 +138,14 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
   const storeId = pickStore(data.stores, wanted);
   const { toBuy, inCart } = storeId ? forStore(data.items, storeId) : { toBuy: [], inCart: [] };
   const editing = editingOften && !text.trim(); // typing means adding, so Edit mode steps aside
+  const storeLabel = data.stores.find((s) => s.id === storeId)?.name ?? '';
+  const next = storeId ? nextStore(data.stores, storeId) : null;
+  const justCleared = cleared === storeId;
   const often = storeId ? suggestionsFor(data, storeId, text, editing) : [];
 
   const choose = (id: string) => {
     setWanted(id);
+    setCelebrating(null);
     try {
       localStorage.setItem(LAST_STORE, id);
     } catch {
@@ -95,10 +158,24 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
     if (!clean || !storeId) return;
     setText('');
     const id = newId();
+    setCelebrating(null);
+    setCleared(null);
+    clearTimeout(clearedTimer.current);
     void mutate(
       (d) => withNewItem(d, id, storeId, clean, session.deviceName),
       { kind: 'addItem', id, storeId, name: clean, addedBy: session.deviceName },
     );
+  };
+
+  const clearCart = () => {
+    if (!storeId) return;
+    const n = inCart.length;
+    setCelebrating(null);
+    setCleared(storeId);
+    clearTimeout(clearedTimer.current);
+    clearedTimer.current = setTimeout(() => setCleared(null), CLEARED_MS);
+    say(`Cleared ${n} item${n === 1 ? '' : 's'}`);
+    void mutate((d) => withoutChecked(d, storeId), { kind: 'clearChecked', storeId });
   };
 
   const closeStoreForm = () => {
@@ -217,7 +294,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
                     </span>
                   ) : (
                     <button type="button" class="chip" key={f.name} aria-label={`Add ${f.name}`} onClick={() => add(f.name)}>
-                      {f.name}
+                      <span aria-hidden="true">{emojiFor(f.name)}</span> {f.name}
                     </button>
                   ),
                 )}
@@ -227,20 +304,59 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
 
           <section aria-label="To buy">
             <div class="sec">To buy · {toBuy.length}</div>
-            {toBuy.length === 0 && <p class="muted">Nothing to buy here.</p>}
+            {toBuy.length === 0 && celebrating === storeId && (
+              <Celebration
+                store={storeLabel}
+                next={next?.name ?? null}
+                onNext={() => next && choose(next.id)}
+                onClear={clearCart}
+                onDismiss={() => setCelebrating(null)}
+              />
+            )}
+            {toBuy.length === 0 && celebrating !== storeId && (
+              <div class="empty">
+                <div class="big" aria-hidden="true">
+                  {justCleared ? '🧺' : '🛒'}
+                </div>
+                <p class="line">{justCleared ? 'Cart cleared. See you next trip!' : 'Nothing to buy here. Suspiciously organised.'}</p>
+                <p class="muted">Type above or tap the camera to add</p>
+              </div>
+            )}
             {toBuy.map((item) => (
-              <div class="it" key={item.id}>
+              <div class={fresh.includes(item.id) ? 'it fresh' : 'it'} key={item.id}>
                 <button
                   type="button"
                   class="ck"
                   aria-label={`Check off ${item.name}`}
-                  onClick={() => void mutate((d) => withChecked(d, item.id, true), { kind: 'updateItem', id: item.id, changes: { checked: true } })}
+                  onClick={() => {
+                    if (isLastToBuy(data.items, item.storeId, item.id)) setCelebrating(item.storeId);
+                    setPopped((old) => new Set(old).add(item.id));
+                    clearTimeout(popTimers.current.get(item.id));
+                    popTimers.current.set(
+                      item.id,
+                      setTimeout(() => {
+                        popTimers.current.delete(item.id);
+                        setPopped((old) => {
+                          const next = new Set(old);
+                          next.delete(item.id);
+                          return next;
+                        });
+                      }, 1000),
+                    );
+                    void mutate((d) => withChecked(d, item.id, true), { kind: 'updateItem', id: item.id, changes: { checked: true } });
+                  }}
                 />
+                <span class="em" aria-hidden="true">
+                  {emojiFor(item.name)}
+                </span>
                 <span class="nm">
                   {item.name}
+                  {fresh.includes(item.id) && <b class="new">New</b>}
                   {item.note && <small class="muted"> {item.note}</small>}
                 </span>
-                <small class="by">{item.addedBy}</small>
+                <span class="av" role="img" aria-label={`Added by ${firstWord(item.addedBy)}`} title={item.addedBy} style={{ background: avatarColor(item.addedBy) }}>
+                  {initial(item.addedBy)}
+                </span>
                 <button
                   type="button"
                   class="x"
@@ -257,12 +373,12 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
             <section aria-label="In cart">
               <div class="sec">
                 <span>In cart · {inCart.length}</span>
-                <button type="button" class="link-btn" onClick={() => void mutate((d) => withoutChecked(d, storeId), { kind: 'clearChecked', storeId })}>
+                <button type="button" class="link-btn" onClick={clearCart}>
                   Clear
                 </button>
               </div>
               {inCart.map((item) => (
-                <div class="it done" key={item.id}>
+                <div class={popped.has(item.id) ? 'it done pop' : 'it done'} key={item.id}>
                   <button
                     type="button"
                     class="ck on"
@@ -271,6 +387,9 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
                   >
                     ✓
                   </button>
+                  <span class="em" aria-hidden="true">
+                    {emojiFor(item.name)}
+                  </span>
                   <span class="nm">{item.name}</span>
                 </div>
               ))}
@@ -301,7 +420,8 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
             setPhoto(null);
             setNotice(`Added ${added} item${added === 1 ? '' : 's'}${skipped ? `, ${skipped} already on the list` : ''}`);
             void lists.refresh();
-            setTimeout(() => setNotice(''), 6000);
+            clearTimeout(noticeTimer.current);
+            noticeTimer.current = setTimeout(() => setNotice(''), 6000);
           }}
         />
       )}
@@ -320,6 +440,24 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
           </button>
         </p>
       )}
+      <div class="toasts" aria-live="polite">
+        {toast && (
+          <div class="toast">
+            <span>{toast.text}</span>
+            {toast.storeId && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (toast.storeId) choose(toast.storeId);
+                  setToast(null);
+                }}
+              >
+                View
+              </button>
+            )}
+          </div>
+        )}
+      </div>
     </main>
   );
 }

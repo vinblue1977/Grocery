@@ -1,0 +1,34 @@
+/** Who added an item: the first word of the name decides the colour, so it follows the person, not the device. */
+
+const PALETTE = ['#f5b942', '#7bd389', '#b69cff', '#ff9f6b', '#5fd0d0', '#e57fd4'];
+const KNOWN: Record<string, string> = { vinod: '#6aa9ff', yaso: '#ff8fb1' };
+
+export function firstWord(name: string): string {
+  return name.trim().split(/[\s'’]/)[0] ?? '';
+}
+
+export function samePerson(a: string, b: string): boolean {
+  const first = firstWord(a).toLowerCase();
+  return first !== '' && first === firstWord(b).toLowerCase(); // an unknown name is not "me"
+}
+
+export function initial(name: string): string {
+  return firstWord(name).charAt(0).toUpperCase() || '?';
+}
+
+export function avatarColor(name: string): string {
+  const key = firstWord(name).toLowerCase();
+  const known = KNOWN[key];
+  if (known) return known;
+  let hash = 0;
+  for (const ch of key) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  return PALETTE[hash % PALETTE.length] ?? '#6aa9ff';
+}
+
+/** "Good morning, Vinod" and its emoji, for the hour (0-23) on the device's clock. */
+export function greeting(hour: number, name: string): { text: string; emoji: string } {
+  const who = firstWord(name);
+  if (hour < 5) return { text: `Up late${who ? `, ${who}` : ''}?`, emoji: '🌙' };
+  const [part, emoji] = hour < 12 ? ['morning', '☀️'] : hour < 17 ? ['afternoon', '⛅'] : ['evening', '🌙'];
+  return { text: `Good ${part}${who ? `, ${who}` : ''}`, emoji: emoji ?? '' };
+}
