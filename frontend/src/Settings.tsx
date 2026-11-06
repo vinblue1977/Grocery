@@ -1,0 +1,119 @@
+import { useEffect, useState } from 'preact/hooks';
+import { ApiError, type Api, type Device } from './api';
+import { buildInviteLink } from './invite';
+import type { Session } from './session';
+import { applyTheme, loadPref, savePref, type ThemePref } from './theme';
+
+const CHOICES: ThemePref[] = ['light', 'dark', 'auto'];
+
+interface Props {
+  api: Api;
+  session: Session;
+  onSignedOut: () => void;
+}
+
+export function Settings({ api, session, onSignedOut }: Props) {
+  const [pref, setPref] = useState<ThemePref>(loadPref);
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [link, setLink] = useState('');
+  const [note, setNote] = useState('');
+
+  const refresh = () =>
+    api.devices().then(setDevices, (err: unknown) => {
+      if (err instanceof ApiError && err.status === 401) onSignedOut(); // this device was revoked elsewhere
+      else setNote('Could not load devices');
+    });
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  const choose = (next: ThemePref) => {
+    savePref(next);
+    applyTheme(next);
+    setPref(next);
+  };
+
+  const invite = async () => {
+    setNote('');
+    try {
+      const { code } = await api.invite();
+      const url = buildInviteLink(location.href, code);
+      setLink(url);
+      if (navigator.share) await navigator.share({ title: 'Join our Grocery list', url }).catch(() => undefined);
+    } catch {
+      setNote('Could not create an invite');
+    }
+  };
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(link);
+      setNote('Link copied');
+    } catch {
+      setNote('Press and hold the link to copy it');
+    }
+  };
+
+  const revoke = async (device: Device) => {
+    try {
+      await api.revoke(device.deviceId);
+      if (device.current) onSignedOut();
+      else await refresh();
+    } catch {
+      setNote('Could not remove that device');
+    }
+  };
+
+  return (
+    <main class="app">
+      <h1>Settings</h1>
+      <p class="muted">Signed in as {session.deviceName}</p>
+
+      <section class="card">
+        <strong>Appearance</strong>
+        <div class="muted">This device only</div>
+        <div class="seg">
+          {CHOICES.map((choice) => (
+            <button key={choice} type="button" aria-pressed={pref === choice} onClick={() => choose(choice)}>
+              {choice[0]?.toUpperCase() + choice.slice(1)}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section class="card">
+        <strong>Invite your partner</strong>
+        <p class="muted">One-time link, valid for 24 hours. They open it on their iPhone and stay signed in.</p>
+        <button class="primary" type="button" onClick={() => void invite()}>
+          Create invite link
+        </button>
+        {link && (
+          <>
+            <p class="link">{link}</p>
+            <button type="button" onClick={() => void copy()}>
+              Copy link
+            </button>
+          </>
+        )}
+      </section>
+
+      <section class="card">
+        <strong>Devices</strong>
+        {devices.map((device) => (
+          <div class="row" key={device.deviceId}>
+            <span>
+              {device.name}
+              {device.current && <span class="muted"> (this device)</span>}
+            </span>
+            <button type="button" class="danger" onClick={() => void revoke(device)}>
+              {device.current ? 'Sign out' : 'Remove'}
+            </button>
+          </div>
+        ))}
+      </section>
+
+      {note && <p class="muted">{note}</p>}
+    </main>
+  );
+}

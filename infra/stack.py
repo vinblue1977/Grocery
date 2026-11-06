@@ -33,6 +33,7 @@ class GroceryStack(Stack):
             billing_mode=dynamodb.BillingMode.PROVISIONED,
             read_capacity=FREE_TIER_CAPACITY,
             write_capacity=FREE_TIER_CAPACITY,
+            time_to_live_attribute="ttl",  # expired invite codes (free)
             deletion_protection=True,
             removal_policy=RemovalPolicy.RETAIN,
         )
