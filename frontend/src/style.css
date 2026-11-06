@@ -52,7 +52,9 @@ button { font: inherit; }
 .link-btn { color: var(--acc); text-transform: none; letter-spacing: 0; font-size: 13px; }
 .status { text-align: center; }
 .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.top.left { justify-content: flex-start; gap: 16px; }
 .top h1 { margin: 0; }
+[hidden] { display: none !important; }
 .icon-btn { background: none; border: 0; color: var(--mut); padding: 8px; margin-right: -8px; border-radius: 12px; display: grid; place-items: center; }
 .icon-btn:active { background: var(--accl); }
 .back { background: none; border: 0; color: var(--acc); font: inherit; font-size: 17px; padding: 8px 0; }

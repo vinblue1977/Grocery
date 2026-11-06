@@ -74,7 +74,7 @@ export function Settings({ api, lists, session, onSignedOut, onBack }: Props) {
 
   return (
     <main class="app">
-      <header class="top">
+      <header class="top left">
         <button type="button" class="back" onClick={onBack}>
           ‹ Lists
         </button>
