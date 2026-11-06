@@ -21,16 +21,20 @@ DEFAULT_STORES = ("Costco", "Patel", "Butcher")
 logger = logging.getLogger(__name__)
 
 MAX_NAME = 80
-ID_PATTERN = re.compile(r"[0-9a-f]{12,32}")  # a client-made id, so an edit made offline can be replayed safely
 MAX_NOTE = 120
 MAX_STORES = 20
 MAX_ITEMS = 500
 FREQ_MIN = 3  # an item added this many times to a store is suggested there
+ID_PATTERN = re.compile(r"[0-9a-f]{12,32}")  # a client-made id (the server makes 12-hex ones), so an offline edit replays safely
 MAX_FREQ = 150  # remembered names per household; keeps the sync read small (the table is 25 RCU)
 
 
 class NotFound(Exception):
     pass
+
+
+class Busy(Exception):
+    """A write collided with another one in flight; nothing was saved, and trying again will work."""
 
 
 class Invalid(Exception):
@@ -174,9 +178,12 @@ def add_store(table: Any, session: Session, name: object, store_id: object = Non
     """Returns the store and whether it was created now (False: this id was already added, so a replay changes nothing)."""
     clean = clean_text(name, MAX_NAME, required=True)
     new_id = _new_id(store_id)
-    existing = table.get_item(Key={"PK": household_key(session), "SK": f"STORE#{new_id}"}, ConsistentRead=True).get("Item")
-    if existing:
-        return _store_view(existing), False
+    if store_id is not None:  # a server-made id can't be a replay, so only a client-chosen one needs the lookup
+        existing = table.get_item(Key={"PK": household_key(session), "SK": f"STORE#{new_id}"}, ConsistentRead=True).get("Item")
+        if existing:
+            if existing["name"] != clean:
+                raise Invalid("that id already belongs to a different store")
+            return _store_view(existing), False
     rows = [r for r in _all(table, session) if r["SK"].startswith("STORE#")]
     if len(rows) >= MAX_STORES:
         raise Invalid(f"at most {MAX_STORES} stores")
@@ -192,7 +199,10 @@ def add_store(table: Any, session: Session, name: object, store_id: object = Non
     except ClientError as err:
         if err.response["Error"]["Code"] != "ConditionalCheckFailedException":
             raise
-        return _store_view(_get(table, session, f"STORE#{new_id}")), False  # a concurrent replay won the race
+        raced = _get(table, session, f"STORE#{new_id}")  # a concurrent replay won the race
+        if raced["name"] != clean:
+            raise Invalid("that id already belongs to a different store") from err
+        return _store_view(raced), False
     return _store_view(item), True
 
 
@@ -291,6 +301,13 @@ def set_frequent(table: Any, session: Session, store_id: object, name: object, p
     }
 
 
+def _replayed(existing: dict[str, Any], store_id: str, name: str) -> dict[str, Any]:
+    """The item an earlier request with this id created, unless the id is really being reused for a different item."""
+    if existing["storeId"] != store_id or existing["name"].casefold() != name.casefold():
+        raise Invalid("that id already belongs to a different item")
+    return _item_view(existing)
+
+
 def add_item(
     table: Any, session: Session, store_id: object, name: object, note: object, added_by: str, item_id: object = None
 ) -> tuple[dict[str, Any], bool]:
@@ -299,9 +316,10 @@ def add_item(
     if not isinstance(store_id, str):
         raise Invalid("storeId is required")
     new_id = _new_id(item_id)
-    existing = table.get_item(Key={"PK": household_key(session), "SK": f"ITEM#{new_id}"}, ConsistentRead=True).get("Item")
-    if existing:
-        return _item_view(existing), False
+    if item_id is not None:  # a server-made id can't be a replay, so only a client-chosen one needs the lookup
+        existing = table.get_item(Key={"PK": household_key(session), "SK": f"ITEM#{new_id}"}, ConsistentRead=True).get("Item")
+        if existing:
+            return _replayed(existing, store_id, clean), False
     if _count(table, session, "ITEM#") >= MAX_ITEMS:
         raise Invalid(f"at most {MAX_ITEMS} items")
     item = {
@@ -326,8 +344,11 @@ def add_item(
     if not transact(table, [store_exists, put_op(table, item, condition="attribute_not_exists(PK)")]):
         raced = table.get_item(Key={"PK": household_key(session), "SK": f"ITEM#{new_id}"}, ConsistentRead=True).get("Item")
         if raced:  # a concurrent replay of the same add won the race
-            return _item_view(raced), False
-        raise NotFound
+            return _replayed(raced, store_id, clean), False
+        store = table.get_item(Key={"PK": household_key(session), "SK": f"STORE#{store_id}"}, ConsistentRead=True).get("Item")
+        if not store:
+            raise NotFound
+        raise Busy  # the store is there, so the transaction lost to a concurrent write: nothing saved, safe to retry
     _bump(table, session, store_id, clean)
     return _item_view(item), True
 

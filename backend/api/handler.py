@@ -43,6 +43,8 @@ def _authed(table: Any, method: str, path: str, body: dict[str, Any], session: S
         return _route(table, method, path, parts, route, body, session)
     except lists.NotFound:
         return _response(404, {"error": "not found"})
+    except lists.Busy:
+        return _response(503, {"error": "busy, try again"})
     except (lists.Invalid, scan.BadImage) as err:
         return _response(400, {"error": str(err)})
     except scan.TooManyScans:
