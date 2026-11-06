@@ -232,3 +232,23 @@ def recover(table: Any, code: object, device_name: str) -> dict[str, str]:
     if not transact(table, [still_current, *_named(device_ops, device_name)]):
         raise InvalidRecovery
     return creds
+
+
+def rename_device(table: Any, session: Session, device_id: str, name: object) -> dict[str, str]:
+    """A device may only rename itself. The condition stops the update from recreating a device removed meanwhile."""
+    if device_id != session.device_id:
+        raise NotFound
+    clean = clean_name(name, "Device")
+    try:
+        table.update_item(
+            Key={"PK": f"H#{session.household_id}", "SK": f"DEVICE#{device_id}"},
+            UpdateExpression="SET #n = :n",
+            ConditionExpression="attribute_exists(PK)",
+            ExpressionAttributeNames={"#n": "name"},
+            ExpressionAttributeValues={":n": clean},
+        )
+    except ClientError as err:
+        if err.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            raise NotFound from err
+        raise
+    return {"deviceId": device_id, "name": clean}

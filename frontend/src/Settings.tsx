@@ -13,11 +13,13 @@ interface Props {
   lists: ListsState;
   session: Session;
   onSignedOut: () => void;
+  onRenamed: (name: string) => void;
   onBack: () => void;
 }
 
-export function Settings({ api, lists, session, onSignedOut, onBack }: Props) {
+export function Settings({ api, lists, session, onSignedOut, onRenamed, onBack }: Props) {
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
+  const [renamingDevice, setRenamingDevice] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [pref, setPref] = useState<ThemePref>(loadPref);
   const [devices, setDevices] = useState<Device[]>([]);
@@ -92,6 +94,19 @@ export function Settings({ api, lists, session, onSignedOut, onBack }: Props) {
     } catch (err) {
       if (device.current && err instanceof ApiError && (err.status === 401 || err.status === 404)) onSignedOut(); // already gone
       else setNote(err instanceof ApiError && err.status === 409 ? err.message : 'Could not remove that device');
+    }
+  };
+
+  const renameDevice = async (name: string) => {
+    setRenamingDevice(null);
+    if (!name || name === session.deviceName) return;
+    try {
+      const done = await api.renameDevice(session.deviceId, name);
+      onRenamed(done.name);
+      await refresh();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) onSignedOut();
+      else setNote('Could not rename this device');
     }
   };
 
@@ -203,13 +218,37 @@ export function Settings({ api, lists, session, onSignedOut, onBack }: Props) {
         <strong>Devices</strong>
         {devices.map((device) => (
           <div class="row" key={device.deviceId}>
-            <span>
-              {device.name}
-              {device.current && <span class="muted"> (this device)</span>}
-            </span>
-            <button type="button" class="danger" disabled={devices.length <= 1} onClick={() => void revoke(device)}>
-              {device.current ? 'Sign out' : 'Remove'}
-            </button>
+            {device.current && renamingDevice !== null ? (
+              <form
+                class="add"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void renameDevice(renamingDevice.trim());
+                }}
+              >
+                <input value={renamingDevice} maxLength={40} onInput={(e) => setRenamingDevice(e.currentTarget.value)} />
+                <button type="submit">Save</button>
+              </form>
+            ) : (
+              <>
+                <span>
+                  {device.name}
+                  {device.current && <span class="muted"> (this device)</span>}
+                </span>
+                <span>
+                  {device.current && (
+                    <>
+                      <button type="button" onClick={() => setRenamingDevice(device.name)}>
+                        Rename
+                      </button>{' '}
+                    </>
+                  )}
+                  <button type="button" class="danger" disabled={devices.length <= 1} onClick={() => void revoke(device)}>
+                    {device.current ? 'Sign out' : 'Remove'}
+                  </button>
+                </span>
+              </>
+            )}
           </div>
         ))}
       </section>

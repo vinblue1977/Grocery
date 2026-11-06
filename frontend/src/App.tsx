@@ -36,10 +36,26 @@ export function App() {
     );
   }
 
-  return <Signed api={api} session={session} onSignedOut={signOut} />;
+  const renamed = (deviceName: string) => {
+    const next = { ...session, deviceName };
+    saveSession(next);
+    setSession(next); // new items carry the new name straight away
+  };
+
+  return <Signed api={api} session={session} onSignedOut={signOut} onRenamed={renamed} />;
 }
 
-export function Signed({ api, session, onSignedOut }: { api: Api; session: Session; onSignedOut: () => void }) {
+export function Signed({
+  api,
+  session,
+  onSignedOut,
+  onRenamed = () => undefined,
+}: {
+  api: Api;
+  session: Session;
+  onSignedOut: () => void;
+  onRenamed?: (name: string) => void;
+}) {
   const [tab, setTab] = useState<'lists' | 'settings'>('lists');
   const lists = useLists(api, onSignedOut, session.householdId);
 
@@ -60,7 +76,9 @@ export function Signed({ api, session, onSignedOut }: { api: Api; session: Sessi
       <div hidden={tab !== 'lists'}>
         <Lists api={api} lists={lists} session={session} onOpenSettings={openSettings} />
       </div>
-      {tab === 'settings' && <Settings api={api} lists={lists} session={session} onSignedOut={onSignedOut} onBack={() => history.back()} />}
+      {tab === 'settings' && (
+        <Settings api={api} lists={lists} session={session} onSignedOut={onSignedOut} onRenamed={onRenamed} onBack={() => history.back()} />
+      )}
     </>
   );
 }
