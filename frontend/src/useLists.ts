@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { ApiError, type Api, type Snapshot } from './api';
+import { loadSnapshot, saveSnapshot } from './snapshotCache';
 
 const POLL_MS = 5000;
 const IDLE_MS = 2 * 60 * 1000;
@@ -18,10 +19,12 @@ export interface ListsState {
  * idle), and re-fetches when it comes back to the foreground. A poll that overlaps an edit is discarded, and a failed
  * edit is undone on screen, so the list never shows something the server doesn't have.
  */
-export function useLists(api: Api, onSignedOut: () => void): ListsState {
-  const [data, setData] = useState<Snapshot | null>(null);
+export function useLists(api: Api, onSignedOut: () => void, householdId?: string): ListsState {
+  // The last list this device saw (for this household only) shows at once, and stays if the first sync fails offline.
+  const [cached] = useState(() => (householdId ? loadSnapshot(householdId) : null));
+  const [data, setData] = useState<Snapshot | null>(cached);
   const [error, setError] = useState('');
-  const dataRef = useRef<Snapshot | null>(null);
+  const dataRef = useRef<Snapshot | null>(cached);
   const inFlight = useRef(0);
   const alive = useRef(true);
   const requestSeq = useRef(0); // only the newest sync may update the screen, so a slow old one can't overwrite newer data
@@ -43,13 +46,14 @@ export function useLists(api: Api, onSignedOut: () => void): ListsState {
       const next = await api.sync();
       if (alive.current && mine === requestSeq.current && edits === editSeq.current && inFlight.current === 0) {
         show(next);
+        if (householdId) saveSnapshot(householdId, next);
         setError('');
       }
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) signedOut.current();
       else if (alive.current) setError(err instanceof ApiError && err.status === 0 ? 'Offline: showing the last list' : 'Could not sync');
     }
-  }, [api]);
+  }, [api, householdId]);
 
   const mutate = useCallback<ListsState['mutate']>(
     async (optimistic, request) => {
