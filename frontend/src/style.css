@@ -32,3 +32,4 @@ button { font: inherit; }
 .row:last-child { border-bottom: 0; }
 .link { word-break: break-all; font-size: 12px; background: var(--bg); padding: 8px; border-radius: 8px; }
 .error { color: #c0392b; font-size: 14px; }
+.tip { font-size: 13px; background: var(--accl); color: var(--ink); padding: 10px; border-radius: 10px; }
