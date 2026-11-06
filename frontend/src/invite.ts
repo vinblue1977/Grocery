@@ -17,3 +17,11 @@ export function buildInviteLink(pageUrl: string, code: string): string {
   const base = pageUrl.split('#')[0] ?? pageUrl;
   return `${base}#${PARAM}${encodeURIComponent(code)}`;
 }
+
+/** Accepts what a person pastes: the whole invite link, or just the code. */
+export function parseInviteInput(input: string): string | null {
+  const text = input.trim();
+  const hashAt = text.indexOf('#');
+  if (hashAt >= 0) return parseJoinCode(text.slice(hashAt));
+  return /^[\w-]{8,100}$/.test(text) ? text : null;
+}

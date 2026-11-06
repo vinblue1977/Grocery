@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError, createApi } from './api';
-import { buildInviteLink, parseJoinCode } from './invite';
+import { buildInviteLink, parseInviteInput, parseJoinCode } from './invite';
 import { clearSession, isSession, loadSession, saveSession } from './session';
 
 const ok = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
@@ -51,6 +51,19 @@ describe('invite links', () => {
     expect(parseJoinCode('#join=short')).toBeNull();
     expect(parseJoinCode('#join=<script>alert(1)</script>')).toBeNull();
     expect(parseJoinCode('#join=%E0%A4%A')).toBeNull(); // malformed escape must not throw
+  });
+});
+
+describe('pasted invites', () => {
+  it('accepts a full link or a bare code', () => {
+    expect(parseInviteInput(' https://u.github.io/Grocery/#join=abc_DEF-1234567 ')).toBe('abc_DEF-1234567');
+    expect(parseInviteInput('abc_DEF-1234567')).toBe('abc_DEF-1234567');
+  });
+
+  it('rejects anything else', () => {
+    expect(parseInviteInput('')).toBeNull();
+    expect(parseInviteInput('hello world')).toBeNull();
+    expect(parseInviteInput('https://u.github.io/Grocery/')).toBeNull();
   });
 });
 
