@@ -17,6 +17,7 @@ from constructs import Construct
 
 GITHUB = "token.actions.githubusercontent.com"
 PAGES_ORIGIN = "https://vinblue1977.github.io"  # GitHub Pages serves the PWA from here
+DEFAULT_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"  # reads photos of paper lists; a US inference profile
 FREE_TIER_CAPACITY = 5  # RCU and WCU; the always-free allowance is 25 of each
 
 
@@ -54,6 +55,7 @@ class GroceryStack(Stack):
             self._github_deploy_role(github_repo)
 
     def _api(self) -> lambda_.Function:
+        model: str = self.node.try_get_context("bedrockModel") or DEFAULT_MODEL
         log_group = logs.LogGroup(self, "ApiLogs", retention=logs.RetentionDays.ONE_WEEK, removal_policy=RemovalPolicy.DESTROY)
         fn = lambda_.Function(
             self,
@@ -62,12 +64,13 @@ class GroceryStack(Stack):
             architecture=lambda_.Architecture.ARM_64,
             handler="api.handler.handler",
             code=lambda_.Code.from_asset("backend", exclude=["**/__pycache__", "**/*.pyc"]),
-            memory_size=128,
-            timeout=Duration.seconds(10),
-            environment={"TABLE_NAME": self.table.table_name},
+            memory_size=256,  # the photo arrives base64-encoded; a little headroom
+            timeout=Duration.seconds(30),  # a scan waits on Claude
+            environment={"TABLE_NAME": self.table.table_name, "BEDROCK_MODEL_ID": model},
             log_group=log_group,
         )
         self.table.grant_read_write_data(fn)
+        self._allow_model(fn, model)
         # Auth is the app's own device token, checked in the handler; the URL itself is public. CORS: the Pages origin only.
         url = fn.add_function_url(
             auth_type=lambda_.FunctionUrlAuthType.NONE,
@@ -90,6 +93,11 @@ class GroceryStack(Stack):
                 ),
                 NagPackSuppression(
                     id="AwsSolutions-IAM5",
+                    reason="A cross-region inference profile calls the one foundation model in whichever US region has capacity",
+                    applies_to=[RegexAppliesTo(regex=r"/^Resource::arn:.+:bedrock:\*::foundation-model\/anthropic\..+$/")],
+                ),
+                NagPackSuppression(
+                    id="AwsSolutions-IAM5",
                     reason="Table-scoped data access; index wildcard is the table's own indexes",
                     applies_to=[RegexAppliesTo(regex=r"/^Resource::<.+\.Arn>\/index\/\*$/")],
                 ),
@@ -98,6 +106,19 @@ class GroceryStack(Stack):
         )
         CfnOutput(self, "ApiUrl", value=url.url)
         return fn
+
+    def _allow_model(self, fn: lambda_.Function, model: str) -> None:
+        """The function may call exactly one Claude model (its inference profile and the model behind it), nothing else."""
+        base = model.split(".", 1)[1] if model.split(".", 1)[0] in ("us", "eu", "global", "apac") else model
+        fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["bedrock:InvokeModel"],
+                resources=[
+                    f"arn:{self.partition}:bedrock:{self.region}:{self.account}:inference-profile/{model}",
+                    f"arn:{self.partition}:bedrock:*::foundation-model/{base}",  # the profile routes across regions
+                ],
+            )
+        )
 
     def _github_deploy_role(self, github_repo: str) -> None:
         """Role for GitHub Actions in this repo's production environment. Reuses the account's OIDC provider."""

@@ -3,6 +3,8 @@ import { act } from 'preact/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type Api, type Snapshot } from './api';
 import { Lists } from './Lists';
+
+vi.mock('./scan', () => ({ shrinkPhoto: vi.fn().mockResolvedValue('BASE64') }));
 import { useLists, type ListsState } from './useLists';
 
 const snapshot = (): Snapshot => ({
@@ -51,6 +53,8 @@ beforeEach(() => {
     deleteItem: vi.fn().mockResolvedValue(undefined),
     clearChecked: vi.fn().mockResolvedValue(undefined),
     addStore: vi.fn().mockResolvedValue({ id: 'n', name: 'New', order: 2 }),
+    scan: vi.fn().mockResolvedValue([{ name: 'Tea', note: '', storeId: 'c', unsure: false }]),
+    addItems: vi.fn().mockResolvedValue({ added: 1, skipped: 1 }),
   } as unknown as Api;
 });
 
@@ -117,6 +121,32 @@ describe('Lists screen', () => {
     await flush();
     expect(root.textContent).toContain('Loading');
     await click(root.querySelector('[aria-label="Settings"]'));
+    expect(open).toHaveBeenCalled();
+  });
+
+  it('scans a photo, reviews it, adds the items and says what happened', async () => {
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await flush();
+    const input = root.querySelector('[data-testid=photo]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: [new File(['x'], 'list.jpg')] });
+    await act(() => {
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await flush();
+    expect(api.scan).toHaveBeenCalledWith('BASE64');
+    expect(root.textContent).toContain('Found 1 item');
+    await click(Array.from(root.querySelectorAll('button')).find((b) => b.textContent === 'Add 1 item') ?? null);
+    await flush();
+    expect(api.addItems).toHaveBeenCalledWith([{ name: 'Tea', note: '', storeId: 'c' }]);
+    expect(root.textContent).toContain('Added 1 item, 1 already on the list');
+    expect(root.querySelector('.sheet')).toBeNull();
+  });
+
+  it('opens the photo picker from the camera button', async () => {
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await flush();
+    const open = vi.spyOn(root.querySelector('[data-testid=photo]') as HTMLInputElement, 'click');
+    await click(root.querySelector('[aria-label="Add from a photo of a paper list"]'));
     expect(open).toHaveBeenCalled();
   });
 

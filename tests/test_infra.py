@@ -1,3 +1,5 @@
+import json
+
 import aws_cdk as cdk
 import pytest
 from aws_cdk.assertions import Match, Template
@@ -73,3 +75,31 @@ def test_deploy_role_only_for_the_production_environment():
 def test_bad_repo_is_rejected():
     with pytest.raises(ValueError, match="githubRepo"):
         _template(githubRepo="not a repo")
+
+
+def test_the_api_may_call_one_claude_model_and_nothing_else_on_bedrock():
+    t = _template()
+    policies = t.find_resources("AWS::IAM::Policy")
+    statements = [st for p in policies.values() for st in p["Properties"]["PolicyDocument"]["Statement"]]
+    bedrock = [
+        st for st in statements if "bedrock:InvokeModel" in (st["Action"] if isinstance(st["Action"], list) else [st["Action"]])
+    ]
+    assert len(bedrock) == 1
+    assert bedrock[0]["Action"] == "bedrock:InvokeModel"
+    resources = bedrock[0]["Resource"]
+    assert len(resources) == 2
+    assert all("claude-haiku-4-5-20251001-v1:0" in str(r) for r in resources)
+    t.has_resource_properties(
+        "AWS::Lambda::Function",
+        {"Environment": {"Variables": Match.object_like({"BEDROCK_MODEL_ID": "us.anthropic.claude-haiku-4-5-20251001-v1:0"})}},
+    )
+
+
+def test_the_model_can_be_switched_with_one_context_value():
+    t = _template(bedrockModel="global.anthropic.claude-haiku-5-5")
+    t.has_resource_properties(
+        "AWS::Lambda::Function",
+        {"Environment": {"Variables": Match.object_like({"BEDROCK_MODEL_ID": "global.anthropic.claude-haiku-5-5"})}},
+    )
+    policies = t.find_resources("AWS::IAM::Policy")
+    assert "foundation-model/anthropic.claude-haiku-5-5" in json.dumps(policies)

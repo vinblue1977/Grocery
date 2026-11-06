@@ -9,7 +9,13 @@ from api import handler
 
 @pytest.fixture
 def table():
-    os.environ.update(TABLE_NAME="test-table", AWS_DEFAULT_REGION="us-east-2", AWS_ACCESS_KEY_ID="x", AWS_SECRET_ACCESS_KEY="x")
+    os.environ.update(
+        TABLE_NAME="test-table",
+        AWS_DEFAULT_REGION="us-east-2",
+        AWS_ACCESS_KEY_ID="x",
+        AWS_SECRET_ACCESS_KEY="x",
+        BEDROCK_MODEL_ID="us.anthropic.test-model",
+    )
     with mock_aws():
         db = boto3.resource("dynamodb")
         db.create_table(

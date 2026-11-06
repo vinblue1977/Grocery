@@ -1,7 +1,8 @@
-import { useState } from 'preact/hooks';
+import { useRef, useState } from 'preact/hooks';
 import type { Api } from './api';
 import { forStore, pickStore, withChecked, withNewItem, withoutChecked, withoutItem } from './listState';
 import type { Session } from './session';
+import { ScanSheet } from './ScanSheet';
 import type { ListsState } from './useLists';
 
 const LAST_STORE = 'grocery.store';
@@ -27,6 +28,9 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
   const [text, setText] = useState('');
   const [addingStore, setAddingStore] = useState(false);
   const [storeName, setStoreName] = useState('');
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [notice, setNotice] = useState('');
+  const picker = useRef<HTMLInputElement>(null);
   const { data, error, mutate } = lists;
 
   const header = (
@@ -123,6 +127,12 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
               placeholder={`Add item to ${data.stores.find((s) => s.id === storeId)?.name ?? ''}…`}
               onInput={(e) => setText(e.currentTarget.value)}
             />
+            <button type="button" class="camera" aria-label="Add from a photo of a paper list" onClick={() => picker.current?.click()}>
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
+                <circle cx="12" cy="13" r="3.5" />
+              </svg>
+            </button>
             <button type="submit" class="plus" aria-label="Add item">
               ＋
             </button>
@@ -183,6 +193,34 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
           )}
         </>
       )}
+      <input
+        ref={picker}
+        type="file"
+        accept="image/*"
+        hidden
+        data-testid="photo"
+        onChange={(e) => {
+          setNotice('');
+          setPhoto(e.currentTarget.files?.[0] ?? null);
+          e.currentTarget.value = ''; // so choosing the same photo again still fires
+        }}
+      />
+      {photo && (
+        <ScanSheet
+          api={api}
+          file={photo}
+          stores={data.stores}
+          currentStoreId={storeId}
+          onClose={() => setPhoto(null)}
+          onAdded={({ added, skipped }) => {
+            setPhoto(null);
+            setNotice(`Added ${added} item${added === 1 ? '' : 's'}${skipped ? `, ${skipped} already on the list` : ''}`);
+            void lists.refresh();
+            setTimeout(() => setNotice(''), 6000);
+          }}
+        />
+      )}
+      {notice && <p class="notice">{notice}</p>}
       {error && <p class="muted status">{error}</p>}
     </main>
   );

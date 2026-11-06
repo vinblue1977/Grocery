@@ -7,7 +7,7 @@ from typing import Any
 
 import boto3
 
-from api import households, lists
+from api import households, lists, scan
 from api.households import Session
 
 
@@ -43,8 +43,12 @@ def _authed(table: Any, method: str, path: str, body: dict[str, Any], session: S
         return _route(table, method, path, parts, route, body, session)
     except lists.NotFound:
         return _response(404, {"error": "not found"})
-    except lists.Invalid as err:
+    except (lists.Invalid, scan.BadImage) as err:
         return _response(400, {"error": str(err)})
+    except scan.TooManyScans:
+        return _response(429, {"error": f"You have used today's {scan.MAX_SCANS_PER_DAY} list scans. Try again tomorrow."})
+    except scan.ScanFailed:
+        return _response(502, {"error": "Could not read that photo. Try again, or add the items by hand."})
 
 
 def _route(
@@ -78,6 +82,11 @@ def _route(
         return _response(204)
     if method == "POST" and len(parts) == 3 and parts[0] == "stores" and parts[2] == "clear":
         return _response(200, {"removed": lists.clear_checked(table, session, parts[1])})
+    if (method, path) == ("POST", "/scan"):
+        image = scan.decode_image(body.get("image"))  # cheap checks first: a bad photo costs no reads and no scan
+        return _response(200, {"items": scan.read_list(table, session, image, lists.list_stores(table, session))})
+    if (method, path) == ("POST", "/items/bulk"):
+        return _response(201, lists.add_items(table, session, body.get("items"), _device_name(table, session)))
     if (method, path) == ("POST", "/items"):
         added_by = _device_name(table, session)
         return _response(201, lists.add_item(table, session, body.get("storeId"), body.get("name"), body.get("note"), added_by))
