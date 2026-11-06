@@ -111,6 +111,13 @@ describe('Welcome', () => {
     expect(root.querySelector('.error')?.textContent).toContain('tap Lost access?');
   });
 
+  it('keeps the real error when joining with a recovery-looking code fails for another reason', async () => {
+    const { root } = setup(null, { join: vi.fn().mockRejectedValue(new ApiError(503, 'try again soon')) });
+    await type(root, 1, 'rec_abcDEF-123456789');
+    await submit(root);
+    expect(root.querySelector('.error')?.textContent).toContain('try again soon');
+  });
+
   it('rejects a malformed recovery code locally and explains a refused one', async () => {
     const recover = vi
       .fn()

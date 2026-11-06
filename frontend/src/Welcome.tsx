@@ -1,9 +1,9 @@
-import { useState } from "preact/hooks";
-import type { Api } from "./api";
-import { ApiError, toSession } from "./api";
-import { parseInviteInput } from "./invite";
-import { applyTheme, savePref } from "./theme";
-import type { Session } from "./session";
+import { useState } from 'preact/hooks';
+import type { Api } from './api';
+import { ApiError, toSession } from './api';
+import { parseInviteInput } from './invite';
+import { applyTheme, savePref } from './theme';
+import type { Session } from './session';
 
 interface Props {
   api: Api;
@@ -12,7 +12,7 @@ interface Props {
 }
 
 function defaultName(): string {
-  return /iPad/.test(navigator.userAgent) ? "iPad" : "iPhone";
+  return /iPad/.test(navigator.userAgent) ? 'iPad' : 'iPhone';
 }
 
 function isIos(): boolean {
@@ -23,18 +23,18 @@ function isIos(): boolean {
 function isHomeScreenApp(): boolean {
   return (
     (navigator as { standalone?: boolean }).standalone === true ||
-    matchMedia("(display-mode: standalone)").matches
+    matchMedia('(display-mode: standalone)').matches
   );
 }
 
 /** Create the household (first person, dark by default) or join with an invite link (second person, light by default). */
 export function Welcome({ api, joinCode, onSignedIn }: Props) {
-  const [name, setName] = useState("");
-  const [pasted, setPasted] = useState("");
+  const [name, setName] = useState('');
+  const [pasted, setPasted] = useState('');
   const [recovering, setRecovering] = useState(false);
-  const [recoveryCode, setRecoveryCode] = useState("");
+  const [recoveryCode, setRecoveryCode] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
 
   const submit = async (event: Event) => {
     event.preventDefault();
@@ -46,7 +46,7 @@ export function Welcome({ api, joinCode, onSignedIn }: Props) {
         return;
       }
       setBusy(true);
-      setError("");
+      setError('');
       try {
         onSignedIn(
           toSession(await api.recover(recoveryInput, deviceName), deviceName),
@@ -57,13 +57,13 @@ export function Welcome({ api, joinCode, onSignedIn }: Props) {
             ? "That recovery code isn't valid. Check it and try again."
             : err instanceof Error
               ? err.message
-              : "Something went wrong",
+              : 'Something went wrong',
         );
         setBusy(false);
       }
       return;
     }
-    const looksLikeRecovery = pasted.trim().startsWith("rec_");
+    const looksLikeRecovery = pasted.trim().startsWith('rec_');
     const wantsToJoin = joinCode !== null || pasted.length > 0; // any pasted text, even blanks, means "join", never "create"
     const code = joinCode ?? parseInviteInput(pasted);
     if (wantsToJoin && !code) {
@@ -71,24 +71,24 @@ export function Welcome({ api, joinCode, onSignedIn }: Props) {
       return;
     }
     setBusy(true);
-    setError("");
+    setError('');
     try {
       const creds = code
         ? await api.join(code, deviceName)
         : await api.createHousehold(deviceName);
-      const initialTheme = code ? "light" : "dark";
+      const initialTheme = code ? 'light' : 'dark';
       savePref(initialTheme);
       applyTheme(initialTheme);
       onSignedIn(toSession(creds, deviceName));
     } catch (err) {
       setError(
-        looksLikeRecovery
-          ? "That looks like a recovery code: tap Lost access? below."
+        looksLikeRecovery && err instanceof ApiError && err.status === 404
+          ? 'That looks like a recovery code: tap Lost access? below.'
           : err instanceof ApiError && err.status === 409
-            ? "This app is already set up. Paste an invite link or code from the other device."
+            ? 'This app is already set up. Paste an invite link or code from the other device.'
             : err instanceof Error
               ? err.message
-              : "Something went wrong",
+              : 'Something went wrong',
       );
       setBusy(false);
     }
@@ -100,17 +100,17 @@ export function Welcome({ api, joinCode, onSignedIn }: Props) {
       <form class="card" onSubmit={submit}>
         <strong>
           {recovering
-            ? "Get back in"
+            ? 'Get back in'
             : joinCode
-              ? "Join your household"
-              : "Set up your household"}
+              ? 'Join your household'
+              : 'Set up your household'}
         </strong>
         <p class="muted">
           {recovering
-            ? "Enter the recovery code you saved and a name for this device."
+            ? 'Enter the recovery code you saved and a name for this device.'
             : joinCode
-              ? "You were invited. Name this device and you stay signed in."
-              : "You sign in once on this device. Invite your partner from Settings afterwards."}
+              ? 'You were invited. Name this device and you stay signed in.'
+              : 'You sign in once on this device. Invite your partner from Settings afterwards.'}
         </p>
         {!joinCode && !pasted && isIos() && !isHomeScreenApp() && (
           <p class="tip">
@@ -155,12 +155,12 @@ export function Welcome({ api, joinCode, onSignedIn }: Props) {
         {error && <p class="error">{error}</p>}
         <button class="primary" type="submit" disabled={busy}>
           {busy
-            ? "Please wait…"
+            ? 'Please wait…'
             : recovering
-              ? "Sign in"
+              ? 'Sign in'
               : joinCode || pasted
-                ? "Join"
-                : "Create household"}
+                ? 'Join'
+                : 'Create household'}
         </button>
         {!joinCode && (
           <button
@@ -168,10 +168,10 @@ export function Welcome({ api, joinCode, onSignedIn }: Props) {
             class="link-btn"
             onClick={() => {
               setRecovering(!recovering);
-              setError("");
+              setError('');
             }}
           >
-            {recovering ? "Back" : "Lost access? Use a recovery code"}
+            {recovering ? 'Back' : 'Lost access? Use a recovery code'}
           </button>
         )}
       </form>
