@@ -95,10 +95,16 @@ def _seed_defaults(table: Any, session: Session) -> None:
 def _frequent_views(table: Any, rows: list[dict[str, Any]], known: set[str]) -> list[dict[str, Any]]:
     """Suggestions to show: pinned or added often enough, not hidden, in a store that still exists. Also trims the history."""
     freq = [r for r in rows if r["SK"].startswith("FREQ#")]
-    if len(freq) > MAX_FREQ:
-        # Forget the least-used unpinned names first (then the stalest), so the history can't grow without bound.
-        extras = sorted((r for r in freq if not r.get("pinned")), key=lambda r: (int(r["count"]), int(r["updatedAt"])))
-        doomed = extras[: len(freq) - MAX_FREQ]
+    # Forget history for stores that are gone (a delete can race an add), then, if still over the cap, the least-used names.
+    # Pinned and hidden names are the person's own choices, so they are never evicted.
+    doomed = [r for r in freq if r["storeId"] not in known]
+    keep = [r for r in freq if r["storeId"] in known]
+    if len(keep) > MAX_FREQ:
+        extras = sorted(
+            (r for r in keep if not r.get("pinned") and not r.get("hidden")), key=lambda r: (int(r["count"]), int(r["updatedAt"]))
+        )
+        doomed += extras[: len(keep) - MAX_FREQ]
+    if doomed:
         with table.batch_writer() as batch:
             for row in doomed:
                 batch.delete_item(Key={"PK": row["PK"], "SK": row["SK"]})
@@ -203,7 +209,7 @@ def delete_store(table: Any, session: Session, store_id: str) -> None:
 
 
 def _freq_key(session: Session, store_id: str, name: str) -> dict[str, str]:
-    return {"PK": household_key(session), "SK": f"FREQ#{store_id}#{name.casefold()}"}
+    return {"PK": household_key(session), "SK": f"FREQ#{store_id}#{name.lower()}"}
 
 
 def _bump(table: Any, session: Session, store_id: str, name: str) -> None:

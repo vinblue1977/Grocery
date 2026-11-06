@@ -292,3 +292,35 @@ def test_the_history_is_capped_and_pinned_names_survive(me, table, monkeypatch):
     rows = table.query(KeyConditionExpression="PK = :pk", ExpressionAttributeValues={":pk": f"H#{me['householdId']}"})["Items"]
     kept = [r["SK"] for r in rows if r["SK"].startswith("FREQ#")]
     assert len(kept) == 3 and any(sk.endswith("#saffron") for sk in kept)
+
+
+def test_sync_clears_history_of_stores_that_no_longer_exist(me, table):
+    table.put_item(
+        Item={
+            "PK": f"H#{me['householdId']}",
+            "SK": "FREQ#gone#milk",
+            "storeId": "gone",
+            "name": "Milk",
+            "count": 9,
+            "pinned": False,
+            "hidden": False,
+            "updatedAt": 1,
+        }
+    )
+    sync(me)
+    rows = table.query(KeyConditionExpression="PK = :pk", ExpressionAttributeValues={":pk": f"H#{me['householdId']}"})["Items"]
+    assert not any(r["SK"].startswith("FREQ#gone") for r in rows)
+
+
+def test_the_cap_never_forgets_a_hidden_choice(me, table, monkeypatch):
+    from api import lists
+
+    monkeypatch.setattr(lists, "MAX_FREQ", 2)
+    costco = store_id(me, "Costco")
+    put_freq(me, costco, "Milk", hidden=True)  # count 0, the lowest, yet it must survive
+    for name in ("A", "B", "C"):
+        add(me, costco, name)
+    sync(me)
+    rows = table.query(KeyConditionExpression="PK = :pk", ExpressionAttributeValues={":pk": f"H#{me['householdId']}"})["Items"]
+    kept = {r["SK"] for r in rows if r["SK"].startswith("FREQ#")}
+    assert any(sk.endswith("#milk") for sk in kept)

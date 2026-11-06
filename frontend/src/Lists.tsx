@@ -64,7 +64,8 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
 
   const storeId = pickStore(data.stores, wanted);
   const { toBuy, inCart } = storeId ? forStore(data.items, storeId) : { toBuy: [], inCart: [] };
-  const often = storeId ? suggestionsFor(data, storeId, text, editingOften) : [];
+  const editing = editingOften && !text.trim(); // typing means adding, so Edit mode steps aside
+  const often = storeId ? suggestionsFor(data, storeId, text, editing) : [];
 
   const choose = (id: string) => {
     setWanted(id);
@@ -163,20 +164,20 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
             </button>
           </form>
 
-          {(often.length > 0 || editingOften) && (
+          {(often.length > 0 || editing) && (
             <section aria-label="Often bought">
               <div class="oh">
                 <span>Often</span>
                 {!text.trim() && (
-                  <button type="button" class="link-btn" onClick={() => setEditingOften(!editingOften)}>
-                    {editingOften ? 'Done' : 'Edit'}
+                  <button type="button" class="link-btn" onClick={() => setEditingOften(!editing)}>
+                    {editing ? 'Done' : 'Edit'}
                   </button>
                 )}
               </div>
-              <div class={editingOften ? 'chips wrap' : 'chips'}>
+              <div class={editing ? 'chips wrap' : 'chips'}>
                 {often.length === 0 && <span class="muted">Nothing yet: items you add 3 times show up here.</span>}
                 {often.map((f) =>
-                  editingOften ? (
+                  editing ? (
                     <span class={f.pinned ? 'chip pin' : 'chip'} key={f.name}>
                       {f.name}
                       <button

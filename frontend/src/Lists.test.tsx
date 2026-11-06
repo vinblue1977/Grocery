@@ -228,6 +228,20 @@ describe('Lists screen', () => {
     expect(root.querySelector('[aria-label="Add Bananas"]')).not.toBeNull();
   });
 
+  it('leaves Edit mode when you start typing, so chips add again', async () => {
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await flush();
+    await click(Array.from(root.querySelectorAll('button')).find((b) => b.textContent === 'Edit') ?? null);
+    const input = root.querySelector('input') as HTMLInputElement;
+    input.value = 'ban';
+    await act(() => {
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await click(chip(root, 'Add Bananas'));
+    expect(api.addItem).toHaveBeenCalledWith('c', 'Bananas');
+    expect(api.setFrequent).not.toHaveBeenCalled();
+  });
+
   it('shows no Often row when there is nothing to suggest', async () => {
     vi.mocked(api.sync).mockResolvedValue({ ...snapshot(), frequent: [] });
     const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
