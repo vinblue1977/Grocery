@@ -3,9 +3,11 @@
 Items (PK is always H#<hid>):
   STORE#<id>        a shop: name, order
   ITEM#<id>         an item: storeId, name, note, checked, addedBy (a person's name), updatedAt
+  FREQ#<storeId>#<name>  how often a name was added to a store (count), and whether it is pinned or hidden from suggestions
   META#SEEDED       marks that the default stores were created, so deleting them all sticks
 """
 
+import logging
 import time
 import uuid
 from typing import Any
@@ -15,10 +17,14 @@ from botocore.exceptions import ClientError
 from api.households import Session, put_op, transact
 
 DEFAULT_STORES = ("Costco", "Patel", "Butcher")
+logger = logging.getLogger(__name__)
+
 MAX_NAME = 80
 MAX_NOTE = 120
 MAX_STORES = 20
 MAX_ITEMS = 500
+FREQ_MIN = 3  # an item added this many times to a store is suggested there
+MAX_FREQ = 150  # remembered names per household; keeps the sync read small (the table is 25 RCU)
 
 
 class NotFound(Exception):
@@ -86,6 +92,33 @@ def _seed_defaults(table: Any, session: Session) -> None:
     transact(table, ops)  # False means a concurrent sync seeded first: nothing to do
 
 
+def _frequent_views(table: Any, rows: list[dict[str, Any]], known: set[str]) -> list[dict[str, Any]]:
+    """Suggestions to show: pinned or added often enough, not hidden, in a store that still exists. Also trims the history."""
+    freq = [r for r in rows if r["SK"].startswith("FREQ#")]
+    # Forget history for stores that are gone (a delete can race an add), then, if still over the cap, the least-used names.
+    # Pinned and hidden names are the person's own choices, so they are never evicted.
+    doomed = [r for r in freq if r["storeId"] not in known]
+    keep = [r for r in freq if r["storeId"] in known]
+    if len(keep) > MAX_FREQ:
+        extras = sorted(
+            (r for r in keep if not r.get("pinned") and not r.get("hidden")), key=lambda r: (int(r["count"]), int(r["updatedAt"]))
+        )
+        doomed += extras[: len(keep) - MAX_FREQ]
+    if doomed:
+        with table.batch_writer() as batch:
+            for row in doomed:
+                batch.delete_item(Key={"PK": row["PK"], "SK": row["SK"]})
+        gone = {r["SK"] for r in doomed}
+        freq = [r for r in freq if r["SK"] not in gone]
+    shown = [
+        r for r in freq if r["storeId"] in known and not r.get("hidden") and (r.get("pinned") or int(r["count"]) >= FREQ_MIN)
+    ]
+    shown.sort(key=lambda r: (not r.get("pinned"), -int(r["count"]), r["name"].casefold()))
+    return [
+        {"storeId": r["storeId"], "name": r["name"], "count": int(r["count"]), "pinned": bool(r.get("pinned"))} for r in shown
+    ]
+
+
 def sync(table: Any, session: Session) -> dict[str, Any]:
     rows = _all(table, session)
     if not any(r["SK"] == "META#SEEDED" for r in rows):
@@ -97,7 +130,7 @@ def sync(table: Any, session: Session) -> dict[str, Any]:
         (_item_view(r) for r in rows if r["SK"].startswith("ITEM#") and r["storeId"] in known),
         key=lambda i: (i["updatedAt"], i["id"]),
     )
-    return {"stores": stores, "items": items, "now": _now()}
+    return {"stores": stores, "items": items, "frequent": _frequent_views(table, rows, known), "now": _now()}
 
 
 def _count(table: Any, session: Session, prefix: str) -> int:
@@ -168,11 +201,74 @@ def rename_store(table: Any, session: Session, store_id: str, name: object) -> d
 
 def delete_store(table: Any, session: Session, store_id: str) -> None:
     _get(table, session, f"STORE#{store_id}")
-    doomed = [r for r in _all(table, session) if r["SK"].startswith("ITEM#") and r["storeId"] == store_id]
+    doomed = [r for r in _all(table, session) if r["SK"].startswith(("ITEM#", "FREQ#")) and r["storeId"] == store_id]
     with table.batch_writer() as batch:
         for row in doomed:
             batch.delete_item(Key={"PK": row["PK"], "SK": row["SK"]})
         batch.delete_item(Key={"PK": household_key(session), "SK": f"STORE#{store_id}"})
+
+
+def _freq_key(session: Session, store_id: str, name: str) -> dict[str, str]:
+    return {"PK": household_key(session), "SK": f"FREQ#{store_id}#{name.lower()}"}
+
+
+def _bump(table: Any, session: Session, store_id: str, name: str) -> None:
+    """Counts one more add of this name in this store. Best effort: the item is already saved, so a failure is not an error."""
+    try:
+        table.update_item(
+            Key=_freq_key(session, store_id, name),
+            UpdateExpression=(
+                "ADD #c :one SET #n = :n, storeId = :s, updatedAt = :t, "
+                "#pinned = if_not_exists(#pinned, :no), #hidden = if_not_exists(#hidden, :no)"
+            ),
+            ExpressionAttributeNames={"#c": "count", "#n": "name", "#pinned": "pinned", "#hidden": "hidden"},
+            ExpressionAttributeValues={":one": 1, ":n": name, ":s": store_id, ":t": _now(), ":no": False},
+        )
+    except ClientError:
+        logger.exception("could not count a frequent item")
+
+
+def set_frequent(table: Any, session: Session, store_id: object, name: object, pinned: object, hidden: object) -> dict[str, Any]:
+    """Pins a suggestion (keeps it shown) or hides it. Pinning un-hides, and hiding un-pins."""
+    clean = clean_text(name, MAX_NAME, required=True)
+    if not isinstance(store_id, str):
+        raise Invalid("storeId is required")
+    if pinned is not None and not isinstance(pinned, bool) or hidden is not None and not isinstance(hidden, bool):
+        raise Invalid("pinned and hidden must be true or false")
+    if pinned is None and hidden is None:
+        raise Invalid("pinned or hidden is required")
+    if pinned:
+        hidden = False
+    elif hidden:
+        pinned = False
+    _get(table, session, f"STORE#{store_id}")
+    fields: dict[str, Any] = {"name": clean, "storeId": store_id, "updatedAt": _now()}
+    if pinned is not None:
+        fields["pinned"] = pinned
+    if hidden is not None:
+        fields["hidden"] = hidden
+    names = {f"#{k}": k for k in fields} | {"#c": "count"}
+    values = {f":{k}": v for k, v in fields.items()} | {":zero": 0}
+    sets = [f"#{k} = :{k}" for k in fields] + ["#c = if_not_exists(#c, :zero)"]
+    for k in ("pinned", "hidden"):
+        if k not in fields:  # the one not being set starts out false on a brand-new row
+            sets.append(f"#{k} = if_not_exists(#{k}, :no)")
+            names[f"#{k}"] = k
+            values[":no"] = False
+    row = table.update_item(
+        Key=_freq_key(session, store_id, clean),
+        UpdateExpression="SET " + ", ".join(sets),
+        ExpressionAttributeNames=names,
+        ExpressionAttributeValues=values,
+        ReturnValues="ALL_NEW",
+    )["Attributes"]
+    return {
+        "storeId": store_id,
+        "name": row["name"],
+        "count": int(row["count"]),
+        "pinned": bool(row["pinned"]),
+        "hidden": bool(row["hidden"]),
+    }
 
 
 def add_item(table: Any, session: Session, store_id: object, name: object, note: object, added_by: str) -> dict[str, Any]:
@@ -203,6 +299,7 @@ def add_item(table: Any, session: Session, store_id: object, name: object, note:
     }
     if not transact(table, [store_exists, put_op(table, item)]):
         raise NotFound
+    _bump(table, session, store_id, clean)
     return _item_view(item)
 
 
@@ -291,4 +388,6 @@ def add_items(table: Any, session: Session, entries: object, added_by: str) -> d
         ]
         if not transact(table, [*checks, *(put_op(table, f) for f in fresh)]):
             raise NotFound
+        for f in fresh:
+            _bump(table, session, f["storeId"], f["name"])
     return {"added": len(fresh), "skipped": skipped}

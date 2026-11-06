@@ -45,9 +45,18 @@ export interface NewItem {
   storeId: string;
 }
 
+/** A name suggested for a store: bought often (added 3+ times) or pinned. */
+export interface Frequent {
+  storeId: string;
+  name: string;
+  count: number;
+  pinned: boolean;
+}
+
 export interface Snapshot {
   stores: Store[];
   items: Item[];
+  frequent: Frequent[];
 }
 
 interface Credentials {
@@ -68,6 +77,7 @@ export interface Api {
   renameStore(id: string, name: string): Promise<Store>;
   deleteStore(id: string): Promise<void>;
   clearChecked(storeId: string): Promise<void>;
+  setFrequent(storeId: string, name: string, changes: { pinned?: boolean; hidden?: boolean }): Promise<unknown>;
   addItem(storeId: string, name: string, note?: string): Promise<Item>;
   updateItem(id: string, changes: Partial<Pick<Item, 'checked' | 'name' | 'note'>>): Promise<Item>;
   deleteItem(id: string): Promise<void>;
@@ -106,10 +116,14 @@ export function createApi(baseUrl: string, getToken: () => string | null, fetchI
     invite: () => request('POST', '/invites'),
     devices: async () => (await request<{ devices: Device[] }>('GET', '/devices')).devices,
     revoke: (deviceId) => request('DELETE', `/devices/${encodeURIComponent(deviceId)}`),
-    sync: () => request('GET', '/sync'),
+    sync: async () => {
+      const snapshot = await request<Snapshot>('GET', '/sync');
+      return { ...snapshot, frequent: snapshot.frequent ?? [] }; // an older server has no suggestions yet
+    },
     addStore: (name) => request('POST', '/stores', { name }),
     renameStore: (id, name) => request('PATCH', `/stores/${encodeURIComponent(id)}`, { name }),
     deleteStore: (id) => request('DELETE', `/stores/${encodeURIComponent(id)}`),
+    setFrequent: (storeId, name, changes) => request('PUT', '/frequent', { storeId, name, ...changes }),
     clearChecked: async (storeId) => {
       await request('POST', `/stores/${encodeURIComponent(storeId)}/clear`);
     },
