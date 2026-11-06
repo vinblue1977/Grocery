@@ -50,6 +50,7 @@ describe('invite links', () => {
     expect(parseJoinCode('#other=1')).toBeNull();
     expect(parseJoinCode('#join=short')).toBeNull();
     expect(parseJoinCode('#join=<script>alert(1)</script>')).toBeNull();
+    expect(parseJoinCode('#join=%E0%A4%A')).toBeNull(); // malformed escape must not throw
   });
 });
 
@@ -67,6 +68,16 @@ describe('session storage', () => {
     expect(loadSession(storage)).toEqual(session);
     clearSession(storage);
     expect(loadSession(storage)).toBeNull();
+  });
+
+  it('keeps going when storage refuses the write', () => {
+    expect(() =>
+      saveSession(session, {
+        setItem: () => {
+          throw new Error('quota');
+        },
+      }),
+    ).not.toThrow();
   });
 
   it('ignores corrupt data', () => {

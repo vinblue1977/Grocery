@@ -38,10 +38,13 @@ def test_only_one_household_can_exist(table):
     assert status == 409
 
 
-def test_blank_or_missing_device_name_gets_a_default_and_long_names_are_cut(table):
+def test_missing_blank_or_invalid_device_names_get_a_default(table):
     status, body = call("POST", "/household", "not json")
     assert status == 201
     assert call("GET", "/me", token=body["token"])[1]["deviceName"] == "Device"
+    invite = call("POST", "/invites", token=body["token"])[1]
+    joined = call("POST", "/join", {"code": invite["code"], "deviceName": "   "})[1]
+    assert call("GET", "/me", token=joined["token"])[1]["deviceName"] == "Device"
 
 
 def test_long_device_name_is_truncated(table):
@@ -109,3 +112,41 @@ def test_revoking_a_device_signs_it_out(table):
 def test_unknown_route_is_404_when_signed_in(table):
     me = create()
     assert call("GET", "/nope", token=me["token"])[0] == 404
+
+
+def test_the_only_device_cannot_be_removed(table):
+    me = create()
+    status, body = call("DELETE", f"/devices/{me['deviceId']}", token=me["token"])
+    assert status == 409
+    assert "only device" in body["error"]
+    assert call("GET", "/me", token=me["token"])[0] == 200
+
+
+def test_a_device_can_remove_itself_when_another_remains(table):
+    me = create()
+    invite = call("POST", "/invites", token=me["token"])[1]
+    joined = call("POST", "/join", {"code": invite["code"], "deviceName": "Yaso"})[1]
+    assert call("DELETE", f"/devices/{me['deviceId']}", token=joined["token"])[0] == 204
+    assert call("GET", "/me", token=me["token"])[0] == 401
+    assert call("GET", "/me", token=joined["token"])[0] == 200
+
+
+def test_me_is_refused_when_the_device_record_is_missing(table):
+    me = create()
+    table.delete_item(Key={"PK": f"H#{me['householdId']}", "SK": f"DEVICE#{me['deviceId']}"})
+    assert call("GET", "/me", token=me["token"])[0] == 401
+
+
+def test_a_failed_claim_leaves_nothing_behind(table):
+    create()
+    before = table.scan()["Count"]
+    assert call("POST", "/household", {"deviceName": "Stranger"})[0] == 409
+    assert table.scan()["Count"] == before
+
+
+def test_health_does_not_touch_the_table(monkeypatch):
+    from api import handler as h
+
+    h.get_table.cache_clear()
+    monkeypatch.delenv("TABLE_NAME", raising=False)
+    assert call("GET", "/health") == (200, {"ok": True})

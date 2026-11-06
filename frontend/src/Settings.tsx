@@ -60,8 +60,9 @@ export function Settings({ api, session, onSignedOut }: Props) {
       await api.revoke(device.deviceId);
       if (device.current) onSignedOut();
       else await refresh();
-    } catch {
-      setNote('Could not remove that device');
+    } catch (err) {
+      if (device.current && err instanceof ApiError && (err.status === 401 || err.status === 404)) onSignedOut(); // already gone
+      else setNote(err instanceof ApiError && err.status === 409 ? err.message : 'Could not remove that device');
     }
   };
 
@@ -106,7 +107,7 @@ export function Settings({ api, session, onSignedOut }: Props) {
               {device.name}
               {device.current && <span class="muted"> (this device)</span>}
             </span>
-            <button type="button" class="danger" onClick={() => void revoke(device)}>
+            <button type="button" class="danger" disabled={devices.length <= 1} onClick={() => void revoke(device)}>
               {device.current ? 'Sign out' : 'Remove'}
             </button>
           </div>

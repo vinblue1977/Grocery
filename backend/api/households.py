@@ -34,6 +34,10 @@ class NotFound(Exception):
     pass
 
 
+class LastDevice(Exception):
+    """Removing the only device would leave nobody able to sign in or invite."""
+
+
 @dataclass(frozen=True)
 class Session:
     household_id: str
@@ -49,35 +53,63 @@ def clean_name(value: object, fallback: str) -> str:
     return name[:MAX_NAME_LENGTH] or fallback
 
 
-def _add_device(table: Any, household_id: str, device_name: str) -> dict[str, str]:
+def _put(table: Any, item: dict[str, Any], condition: str | None = None) -> dict[str, Any]:
+    # The resource client converts plain Python values to DynamoDB types, including inside transactions.
+    op: dict[str, Any] = {"TableName": table.name, "Item": item}
+    if condition:
+        op["ConditionExpression"] = condition
+    return {"Put": op}
+
+
+def _transact(table: Any, ops: list[dict[str, Any]]) -> bool:
+    """All-or-nothing write. Returns False when a condition failed, so callers can map that to their own error."""
+    try:
+        table.meta.client.transact_write_items(TransactItems=ops)
+    except ClientError as err:
+        if err.response["Error"]["Code"] == "TransactionCanceledException":
+            return False
+        raise
+    return True
+
+
+def _device_ops(table: Any, household_id: str) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """The two writes that make a signed-in device: its record, and the token lookup that grants access."""
     device_id = uuid.uuid4().hex
     token = secrets.token_urlsafe(32)
-    table.put_item(
-        Item={
-            "PK": f"H#{household_id}",
-            "SK": f"DEVICE#{device_id}",
-            "deviceId": device_id,
-            "name": device_name,
-            "tokenHash": _hash(token),
-            "createdAt": time.time_ns() // 1_000_000,  # milliseconds, so devices created together keep their order
-        }
-    )
-    table.put_item(Item={"PK": f"TOKEN#{_hash(token)}", "SK": "TOKEN", "householdId": household_id, "deviceId": device_id})
-    return {"householdId": household_id, "deviceId": device_id, "token": token}
+    ops = [
+        _put(
+            table,
+            {
+                "PK": f"H#{household_id}",
+                "SK": f"DEVICE#{device_id}",
+                "deviceId": device_id,
+                "name": "",
+                "tokenHash": _hash(token),
+                "createdAt": time.time_ns() // 1_000_000,  # milliseconds, so devices created together keep their order
+            },
+        ),
+        _put(table, {"PK": f"TOKEN#{_hash(token)}", "SK": "TOKEN", "householdId": household_id, "deviceId": device_id}),
+    ]
+    return ops, {"householdId": household_id, "deviceId": device_id, "token": token}
+
+
+def _named(ops: list[dict[str, Any]], name: str) -> list[dict[str, Any]]:
+    ops[0]["Put"]["Item"]["name"] = name
+    return ops
 
 
 def create_household(table: Any, device_name: str) -> dict[str, str]:
+    """Claims the single household and signs in its first device in one transaction."""
     household_id = uuid.uuid4().hex
-    try:
-        table.put_item(
-            Item={"PK": "APP", "SK": "HOUSEHOLD", "householdId": household_id, "createdAt": int(time.time())},
-            ConditionExpression="attribute_not_exists(PK)",
-        )
-    except ClientError as err:
-        if err.response["Error"]["Code"] == "ConditionalCheckFailedException":
-            raise HouseholdExists from err
-        raise
-    return _add_device(table, household_id, device_name)
+    device_ops, creds = _device_ops(table, household_id)
+    claim = _put(
+        table,
+        {"PK": "APP", "SK": "HOUSEHOLD", "householdId": household_id, "createdAt": int(time.time())},
+        condition="attribute_not_exists(PK)",
+    )
+    if not _transact(table, [claim, *_named(device_ops, device_name)]):
+        raise HouseholdExists
+    return creds
 
 
 def create_invite(table: Any, session: Session, now: float | None = None) -> dict[str, Any]:
@@ -88,35 +120,47 @@ def create_invite(table: Any, session: Session, now: float | None = None) -> dic
 
 
 def join(table: Any, code: str, device_name: str, now: float | None = None) -> dict[str, str]:
-    """Spends the invite atomically: a conditional delete lets only one caller win."""
-    try:
-        old = table.delete_item(
-            Key={"PK": f"INVITE#{_hash(code)}", "SK": "INVITE"},
-            ConditionExpression="attribute_exists(PK)",
-            ReturnValues="ALL_OLD",
-        ).get("Attributes")
-    except ClientError as err:
-        if err.response["Error"]["Code"] == "ConditionalCheckFailedException":
-            raise InvalidInvite from err
-        raise
-    # DynamoDB's TTL sweep can lag by up to two days, so expiry is checked here too.
-    if not old or int(old["ttl"]) < (now if now is not None else time.time()):
+    """Spends the invite and signs in the new device in one transaction: both happen or neither does."""
+    when = int(now if now is not None else time.time())
+    key = {"PK": f"INVITE#{_hash(code)}", "SK": "INVITE"}
+    invite = table.get_item(Key=key, ConsistentRead=True).get("Item")
+    # DynamoDB's TTL sweep can lag by up to two days, so expiry is enforced here and again inside the transaction.
+    if not invite or int(invite["ttl"]) < when:
         raise InvalidInvite
-    return _add_device(table, old["householdId"], device_name)
+    device_ops, creds = _device_ops(table, invite["householdId"])
+    spend = {
+        "Delete": {
+            "TableName": table.name,
+            "Key": key,
+            "ConditionExpression": "attribute_exists(PK) AND #t >= :now",
+            "ExpressionAttributeNames": {"#t": "ttl"},
+            "ExpressionAttributeValues": {":now": when},
+        }
+    }
+    if not _transact(table, [spend, *_named(device_ops, device_name)]):
+        raise InvalidInvite  # someone else spent it first
+    return creds
 
 
 def authenticate(table: Any, authorization: str | None) -> Session | None:
     scheme, _, token = (authorization or "").partition(" ")
     if scheme.lower() != "bearer" or not token:
         return None
-    item = table.get_item(Key={"PK": f"TOKEN#{_hash(token)}", "SK": "TOKEN"}).get("Item")
+    # Consistent read: a device that just signed in must be recognised at once, or the app would sign itself out.
+    item = table.get_item(Key={"PK": f"TOKEN#{_hash(token)}", "SK": "TOKEN"}, ConsistentRead=True).get("Item")
     return Session(item["householdId"], item["deviceId"]) if item else None
+
+
+def get_device(table: Any, session: Session) -> dict[str, Any] | None:
+    key = {"PK": f"H#{session.household_id}", "SK": f"DEVICE#{session.device_id}"}
+    return table.get_item(Key=key, ConsistentRead=True).get("Item")
 
 
 def list_devices(table: Any, session: Session) -> list[dict[str, Any]]:
     items = table.query(
         KeyConditionExpression="PK = :pk AND begins_with(SK, :sk)",
         ExpressionAttributeValues={":pk": f"H#{session.household_id}", ":sk": "DEVICE#"},
+        ConsistentRead=True,
     )["Items"]
     devices = [
         {
@@ -132,9 +176,11 @@ def list_devices(table: Any, session: Session) -> list[dict[str, Any]]:
 
 def revoke_device(table: Any, session: Session, device_id: str) -> None:
     key = {"PK": f"H#{session.household_id}", "SK": f"DEVICE#{device_id}"}
-    device = table.get_item(Key=key).get("Item")
+    device = table.get_item(Key=key, ConsistentRead=True).get("Item")
     if not device:
         raise NotFound
+    if len(list_devices(table, session)) <= 1:
+        raise LastDevice
     # The token item is what grants access, so it goes first.
     table.delete_item(Key={"PK": f"TOKEN#{device['tokenHash']}", "SK": "TOKEN"})
     table.delete_item(Key=key)

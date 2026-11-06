@@ -31,10 +31,11 @@ def _json_body(event: dict[str, Any]) -> dict[str, Any]:
     return body if isinstance(body, dict) else {}
 
 
-def _authed(event: dict[str, Any], method: str, path: str, session: Session) -> dict[str, Any]:
-    table = get_table()
+def _authed(table: Any, method: str, path: str, session: Session) -> dict[str, Any]:
     if (method, path) == ("GET", "/me"):
-        device = next(d for d in households.list_devices(table, session) if d["current"])
+        device = households.get_device(table, session)
+        if device is None:
+            return _response(401, {"error": "sign in required"})
         return _response(200, {"householdId": session.household_id, "deviceId": session.device_id, "deviceName": device["name"]})
     if (method, path) == ("POST", "/invites"):
         return _response(201, households.create_invite(table, session))
@@ -45,6 +46,8 @@ def _authed(event: dict[str, Any], method: str, path: str, session: Session) -> 
             households.revoke_device(table, session, path.removeprefix("/devices/"))
         except households.NotFound:
             return _response(404, {"error": "no such device"})
+        except households.LastDevice:
+            return _response(409, {"error": "this is the only device; invite another before removing it"})
         return _response(204)
     return _response(404, {"error": "not found"})
 
@@ -52,9 +55,9 @@ def _authed(event: dict[str, Any], method: str, path: str, session: Session) -> 
 def handler(event: dict[str, Any], _context: object) -> dict[str, Any]:
     http = event.get("requestContext", {}).get("http", {})
     method, path = http.get("method", ""), event.get("rawPath", "")
-    table = get_table()
     if (method, path) == ("GET", "/health"):
         return _response(200, {"ok": True})
+    table = get_table()
     if (method, path) == ("POST", "/household"):
         body = _json_body(event)
         try:
@@ -73,4 +76,4 @@ def handler(event: dict[str, Any], _context: object) -> dict[str, Any]:
     session = households.authenticate(table, (event.get("headers") or {}).get("authorization"))
     if session is None:
         return _response(401, {"error": "sign in required"})
-    return _authed(event, method, path, session)
+    return _authed(table, method, path, session)

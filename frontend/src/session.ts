@@ -24,7 +24,11 @@ export function loadSession(storage: Pick<Storage, 'getItem'> = localStorage): S
 }
 
 export function saveSession(session: Session, storage: Pick<Storage, 'setItem'> = localStorage): void {
-  storage.setItem(KEY, JSON.stringify(session));
+  try {
+    storage.setItem(KEY, JSON.stringify(session));
+  } catch {
+    // Storage is full or blocked: the app keeps the session in memory, but the next launch will ask to sign in again.
+  }
 }
 
 export function clearSession(storage: Pick<Storage, 'removeItem'> = localStorage): void {
