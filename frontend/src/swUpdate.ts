@@ -17,24 +17,34 @@ export function createReloader(hasPendingEdits: () => boolean, reload: () => voi
       wanted = true;
       attempt();
     },
-    /** Call when pending edits may have cleared (e.g. the page came back to the foreground). */
+    /** Call when the reload may now be allowed (the app went to the background, or pending edits cleared). */
     retry: attempt,
   };
 }
 
-/** Registers the worker, checks for a new one whenever the app returns to the foreground, and reloads onto updates. */
-export function setupServiceWorker(hasPendingEdits: () => boolean = () => false): void {
+/**
+ * Registers the worker, checks for a new one whenever the app returns to the foreground, and reloads onto updates.
+ * A reload would cancel a tap or typing in progress, so after an upgrade it waits until the app goes to the background.
+ */
+export function setupServiceWorker(hasPendingEdits: () => boolean = () => false, reload: () => void = () => location.reload()): void {
   if (!('serviceWorker' in navigator)) return;
   const sw = navigator.serviceWorker;
-  // A first install also fires controllerchange (clients.claim); only an upgrade of an existing worker needs a reload.
-  const hadController = sw.controller !== null;
-  const reloader = createReloader(hasPendingEdits, () => location.reload());
-  if (hadController) sw.addEventListener('controllerchange', reloader.onControllerChange);
-  void sw.register('./sw.js').then((registration) => {
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState !== 'visible') return;
-      reloader.retry();
-      void registration.update().catch(() => undefined); // offline or the server is down: try again next time
-    });
+  let hadController = sw.controller !== null;
+  const reloader = createReloader(() => hasPendingEdits() || document.visibilityState === 'visible', reload);
+  sw.addEventListener('controllerchange', () => {
+    // The first worker claiming a page that had none is an install, not an upgrade: nothing to reload onto.
+    if (!hadController) hadController = true;
+    else reloader.onControllerChange();
   });
+  let registration: ServiceWorkerRegistration | undefined;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') reloader.retry();
+    else void registration?.update().catch(() => undefined); // offline or the server is down: try again next time
+  });
+  void sw
+    .register('./sw.js')
+    .then((r) => {
+      registration = r;
+    })
+    .catch(() => undefined); // blocked or failed install: the app simply works without offline support
 }

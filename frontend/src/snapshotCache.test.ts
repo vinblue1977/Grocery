@@ -46,4 +46,22 @@ describe('snapshotCache', () => {
     expect(() => clearSnapshot({ removeItem: boom })).not.toThrow();
     expect(loadSnapshot('h', { getItem: boom })).toBeNull();
   });
+
+  it('drops a cache from another version, or whose items are missing fields', () => {
+    const old = JSON.stringify({ householdId: 'h1', savedAt: 1, snapshot: snap }); // no version
+    expect(parseSnapshot(old, 'h1')).toBeNull();
+    const broken = { ...snap, items: [{ id: 'i' }] }; // would crash the screen if rendered
+    expect(parseSnapshot(JSON.stringify({ version: 1, householdId: 'h1', savedAt: 1, snapshot: broken }), 'h1')).toBeNull();
+  });
+
+  it('does not rewrite storage when the list has not changed since the last save', () => {
+    const store = memory();
+    clearSnapshot(store); // forget what earlier tests saved
+    let writes = 0;
+    const counting = { setItem: (k: string, v: string) => (writes += 1, store.setItem(k, v)) };
+    saveSnapshot('h1', snap, counting);
+    saveSnapshot('h1', snap, counting);
+    saveSnapshot('h1', { ...snap, items: [] }, counting);
+    expect(writes).toBe(2);
+  });
 });

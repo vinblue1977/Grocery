@@ -40,36 +40,43 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-async function cacheFirst(request, cacheName) {
+async function cacheFirst(event, cacheName) {
   const cache = await caches.open(cacheName);
-  const hit = await cache.match(request);
+  const hit = await cache.match(event.request);
   if (hit) return hit;
-  const response = await fetch(request);
-  if (response.ok) await cache.put(request, response.clone());
+  const response = await fetch(event.request);
+  // Save it in the background; still inside respondWith, so the event is alive and waitUntil is allowed.
+  if (response.ok) event.waitUntil(cache.put(event.request, response.clone()));
   return response;
 }
 
+// A redirected response can't be served to a navigation, and an error page must never replace the saved app.
+const usable = (response) => response.ok && !response.redirected;
+
 async function networkFirst(event) {
   const cache = await caches.open(names.shell);
-  const fresh = fetch(event.request, { cache: 'no-cache' }).then((response) => {
-    // A redirected response can't be served to a navigation, so only cache clean 200s.
-    if (response.ok && !response.redirected) event.waitUntil(cache.put(INDEX, response.clone()));
-    return response;
+  const request = fetch(event.request, { cache: 'no-cache' });
+  // waitUntil only works while the event is alive, so register the background save NOW, not after the timeout has
+  // already answered the page (calling it then throws and the saved page would never refresh).
+  event.waitUntil(request.then((response) => (usable(response) ? cache.put(INDEX, response.clone()) : undefined)).catch(() => undefined));
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(null), NETWORK_TIMEOUT_MS);
   });
-  fresh.catch(() => undefined); // if the timeout wins and the fetch later fails, don't leave an unhandled rejection
-  const timeout = new Promise((resolve) => setTimeout(() => resolve(null), NETWORK_TIMEOUT_MS));
   try {
-    const winner = await Promise.race([fresh, timeout]);
-    if (winner) return winner;
+    const winner = await Promise.race([request, timeout]);
+    if (winner && usable(winner)) return winner;
   } catch {
     // Offline or the server is unreachable: use the saved copy below.
+  } finally {
+    clearTimeout(timer);
   }
-  return (await cache.match(INDEX)) ?? fresh; // nothing saved yet: keep waiting for the network
+  return (await cache.match(INDEX)) ?? request; // nothing saved yet: keep waiting for the network
 }
 
 self.addEventListener('fetch', (event) => {
   const kind = self.SwLogic.classify(event.request.url, SCOPE, event.request.method, event.request.mode);
   if (kind === 'ignore') return;
   if (kind === 'navigate') event.respondWith(networkFirst(event));
-  else event.respondWith(cacheFirst(event.request, kind === 'asset' ? names.assets : names.shell));
+  else event.respondWith(cacheFirst(event, kind === 'asset' ? names.assets : names.shell));
 });
