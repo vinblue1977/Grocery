@@ -33,3 +33,29 @@ button { font: inherit; }
 .link { word-break: break-all; font-size: 12px; background: var(--bg); padding: 8px; border-radius: 8px; }
 .error { color: #c0392b; font-size: 14px; }
 .tip { font-size: 13px; background: var(--accl); color: var(--ink); padding: 10px; border-radius: 10px; }
+.app { padding-bottom: 88px; }
+.tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; }
+.tab { padding: 6px 14px; border-radius: 16px; background: var(--card); border: 1px solid var(--line); color: var(--ink); white-space: nowrap; font: inherit; }
+.tab[aria-selected='true'] { background: var(--acc); border-color: var(--acc); color: var(--bg); }
+.add { display: flex; gap: 6px; margin: 4px 0 10px; }
+.add input { flex: 1; min-width: 0; }
+.add button { padding: 0 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; }
+.add .plus { background: var(--acc); border-color: var(--acc); color: var(--bg); font-size: 20px; }
+.sec { display: flex; justify-content: space-between; align-items: center; margin: 12px 2px 6px; color: var(--mut); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+.it { display: flex; align-items: center; gap: 10px; background: var(--card); border-radius: 12px; padding: 8px 12px; margin-bottom: 6px; }
+.it .nm { flex: 1; min-width: 0; }
+.it .by { color: var(--mut); font-size: 10px; }
+.it.done { opacity: 0.55; }
+.it.done .nm { text-decoration: line-through; }
+.ck { width: 28px; height: 28px; flex: none; border-radius: 50%; border: 2px solid #b8c2bb; background: transparent; color: var(--bg); display: grid; place-items: center; padding: 0; font-size: 14px; }
+.ck.on { background: var(--acc); border-color: var(--acc); }
+.x, .link-btn { background: none; border: 0; color: var(--mut); font: inherit; padding: 6px; }
+.link-btn { color: var(--acc); text-transform: none; letter-spacing: 0; font-size: 13px; }
+.status { text-align: center; }
+.nav {
+  position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-around; background: var(--card);
+  border-top: 1px solid var(--line); padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
+}
+.nav button { background: none; border: 0; color: var(--mut); font-size: 20px; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.nav button span { font-size: 10px; }
+.nav button[aria-current='true'] { color: var(--acc); font-weight: 700; }

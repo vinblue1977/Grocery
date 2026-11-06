@@ -7,7 +7,7 @@ from typing import Any
 
 import boto3
 
-from api import households
+from api import households, lists
 from api.households import Session
 
 
@@ -31,7 +31,25 @@ def _json_body(event: dict[str, Any]) -> dict[str, Any]:
     return body if isinstance(body, dict) else {}
 
 
-def _authed(table: Any, method: str, path: str, session: Session) -> dict[str, Any]:
+def _device_name(table: Any, session: Session) -> str:
+    device = households.get_device(table, session)
+    return str(device["name"]) if device else "Someone"
+
+
+def _authed(table: Any, method: str, path: str, body: dict[str, Any], session: Session) -> dict[str, Any]:
+    parts = path.strip("/").split("/")
+    route = (method, parts[0], len(parts))
+    try:
+        return _route(table, method, path, parts, route, body, session)
+    except lists.NotFound:
+        return _response(404, {"error": "not found"})
+    except lists.Invalid as err:
+        return _response(400, {"error": str(err)})
+
+
+def _route(
+    table: Any, method: str, path: str, parts: list[str], route: tuple[str, str, int], body: dict[str, Any], session: Session
+) -> dict[str, Any]:
     if (method, path) == ("GET", "/me"):
         device = households.get_device(table, session)
         if device is None:
@@ -41,13 +59,32 @@ def _authed(table: Any, method: str, path: str, session: Session) -> dict[str, A
         return _response(201, households.create_invite(table, session))
     if (method, path) == ("GET", "/devices"):
         return _response(200, {"devices": households.list_devices(table, session)})
-    if method == "DELETE" and path.startswith("/devices/"):
+    if route == ("DELETE", "devices", 2):
         try:
-            households.revoke_device(table, session, path.removeprefix("/devices/"))
+            households.revoke_device(table, session, parts[1])
         except households.NotFound:
             return _response(404, {"error": "no such device"})
         except households.LastDevice:
             return _response(409, {"error": "this is the only device; invite another before removing it"})
+        return _response(204)
+    if (method, path) == ("GET", "/sync"):
+        return _response(200, lists.sync(table, session))
+    if (method, path) == ("POST", "/stores"):
+        return _response(201, lists.add_store(table, session, body.get("name")))
+    if route == ("PATCH", "stores", 2):
+        return _response(200, lists.rename_store(table, session, parts[1], body.get("name")))
+    if route == ("DELETE", "stores", 2):
+        lists.delete_store(table, session, parts[1])
+        return _response(204)
+    if method == "POST" and len(parts) == 3 and parts[0] == "stores" and parts[2] == "clear":
+        return _response(200, {"removed": lists.clear_checked(table, session, parts[1])})
+    if (method, path) == ("POST", "/items"):
+        added_by = _device_name(table, session)
+        return _response(201, lists.add_item(table, session, body.get("storeId"), body.get("name"), body.get("note"), added_by))
+    if route == ("PATCH", "items", 2):
+        return _response(200, lists.update_item(table, session, parts[1], body))
+    if route == ("DELETE", "items", 2):
+        lists.delete_item(table, session, parts[1])
         return _response(204)
     return _response(404, {"error": "not found"})
 
@@ -76,4 +113,4 @@ def handler(event: dict[str, Any], _context: object) -> dict[str, Any]:
     session = households.authenticate(table, (event.get("headers") or {}).get("authorization"))
     if session is None:
         return _response(401, {"error": "sign in required"})
-    return _authed(table, method, path, session)
+    return _authed(table, method, path, _json_body(event), session)

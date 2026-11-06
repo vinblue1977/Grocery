@@ -1,18 +1,23 @@
 import { useEffect, useState } from 'preact/hooks';
 import { ApiError, type Api, type Device } from './api';
 import { buildInviteLink } from './invite';
+import { withoutStore, withRenamedStore } from './listState';
 import type { Session } from './session';
+import type { ListsState } from './useLists';
 import { applyTheme, loadPref, savePref, type ThemePref } from './theme';
 
 const CHOICES: ThemePref[] = ['light', 'dark', 'auto'];
 
 interface Props {
   api: Api;
+  lists: ListsState;
   session: Session;
   onSignedOut: () => void;
 }
 
-export function Settings({ api, session, onSignedOut }: Props) {
+export function Settings({ api, lists, session, onSignedOut }: Props) {
+  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
   const [pref, setPref] = useState<ThemePref>(loadPref);
   const [devices, setDevices] = useState<Device[]>([]);
   const [link, setLink] = useState('');
@@ -81,6 +86,48 @@ export function Settings({ api, session, onSignedOut }: Props) {
             </button>
           ))}
         </div>
+      </section>
+
+      <section class="card">
+        <strong>Stores</strong>
+        {lists.data?.stores.map((store) => (
+          <div class="row" key={store.id}>
+            {renaming?.id === store.id ? (
+              <form
+                class="add"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const name = renaming.name.trim();
+                  setRenaming(null);
+                  if (name) void lists.mutate((d) => withRenamedStore(d, store.id, name), () => api.renameStore(store.id, name));
+                }}
+              >
+                <input value={renaming.name} maxLength={80} onInput={(e) => setRenaming({ id: store.id, name: e.currentTarget.value })} />
+                <button type="submit">Save</button>
+              </form>
+            ) : (
+              <>
+                <span>{store.name}</span>
+                <span>
+                  <button type="button" onClick={() => setRenaming({ id: store.id, name: store.name })}>
+                    Rename
+                  </button>{' '}
+                  <button
+                    type="button"
+                    class="danger"
+                    onClick={() => {
+                      if (confirming !== store.id) return setConfirming(store.id);
+                      setConfirming(null);
+                      void lists.mutate((d) => withoutStore(d, store.id), () => api.deleteStore(store.id));
+                    }}
+                  >
+                    {confirming === store.id ? 'Delete it and its items?' : 'Delete'}
+                  </button>
+                </span>
+              </>
+            )}
+          </div>
+        ))}
       </section>
 
       <section class="card">
