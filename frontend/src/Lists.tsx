@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Api } from './api';
-import { forStore, pickStore, suggestionsFor, withChecked, withNewItem, withoutChecked, withoutFrequent, withoutItem, withPinned } from './listState';
+import { forStore, pickStore, suggestionsFor, withChecked, withNewItem, withNewStore, withoutChecked, withoutFrequent, withoutItem, withPinned } from './listState';
+import { newId } from './ids';
 import type { Session } from './session';
 import { ScanSheet } from './ScanSheet';
 import type { ListsState } from './useLists';
 
+const changes = (n: number) => `${n} change${n === 1 ? '' : 's'}`;
+
 const LAST_STORE = 'grocery.store';
-let tempCount = 0; // gives each not-yet-saved item a unique placeholder id
 
 function remembered(): string | null {
   try {
@@ -34,7 +36,19 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
   const picker = useRef<HTMLInputElement>(null);
   const itemInput = useRef<HTMLInputElement>(null);
   const storeInput = useRef<HTMLInputElement>(null);
-  const { data, error, mutate } = lists;
+  const { data, error, mutate, pending, sending, offline, problem } = lists;
+
+  // A store chosen when it was added but never created (the add was refused) must not linger as the remembered selection.
+  const stores = data?.stores;
+  useEffect(() => {
+    if (!stores || pending > 0 || !wanted || stores.some((s) => s.id === wanted)) return;
+    setWanted(null);
+    try {
+      localStorage.removeItem(LAST_STORE);
+    } catch {
+      // Nothing remembered to forget.
+    }
+  }, [stores, pending, wanted]);
 
   useEffect(() => {
     if (addingStore) storeInput.current?.focus(); // once, when the box opens; not on every refresh
@@ -80,9 +94,10 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
     const clean = name.trim();
     if (!clean || !storeId) return;
     setText('');
+    const id = newId();
     void mutate(
-      (d) => withNewItem(d, `tmp-${++tempCount}`, storeId, clean, session.deviceName),
-      () => api.addItem(storeId, clean),
+      (d) => withNewItem(d, id, storeId, clean, session.deviceName),
+      { kind: 'addItem', id, storeId, name: clean, addedBy: session.deviceName },
     );
   };
 
@@ -96,9 +111,11 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
     const name = storeName.trim();
     if (!name) return;
     closeStoreForm();
+    const id = newId();
+    choose(id);
     await mutate(
-      (d) => d,
-      async () => choose((await api.addStore(name)).id),
+      (d) => withNewStore(d, id, name),
+      { kind: 'addStore', id, name },
     );
   };
 
@@ -153,7 +170,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
               placeholder={`Add item to ${data.stores.find((s) => s.id === storeId)?.name ?? ''}…`}
               onInput={(e) => setText(e.currentTarget.value)}
             />
-            <button type="button" class="camera" aria-label="Add from a photo of a paper list" onClick={() => picker.current?.click()}>
+            <button type="button" class="camera" aria-label="Add from a photo of a paper list" disabled={offline || pending > 0} onClick={() => picker.current?.click()}>
               <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
                 <circle cx="12" cy="13" r="3.5" />
@@ -163,6 +180,8 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
               ＋
             </button>
           </form>
+
+          {(offline || pending > 0) && <small class="muted">{offline ? 'Photo scan needs a connection.' : 'Photo scan waits until your changes are sent.'}</small>}
 
           {(often.length > 0 || editing) && (
             <section aria-label="Often bought">
@@ -184,14 +203,14 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
                         type="button"
                         class={f.pinned ? 'pinbtn on' : 'pinbtn'}
                         aria-label={`${f.pinned ? 'Unpin' : 'Pin'} ${f.name}`}
-                        onClick={() => void mutate((d) => withPinned(d, storeId, f.name, !f.pinned), () => api.setFrequent(storeId, f.name, { pinned: !f.pinned }))}
+                        onClick={() => void mutate((d) => withPinned(d, storeId, f.name, !f.pinned), { kind: 'setFrequent', storeId, name: f.name, changes: { pinned: !f.pinned } })}
                       >
                         📌
                       </button>
                       <button
                         type="button"
                         aria-label={`Remove ${f.name} from suggestions`}
-                        onClick={() => void mutate((d) => withoutFrequent(d, storeId, f.name), () => api.setFrequent(storeId, f.name, { hidden: true }))}
+                        onClick={() => void mutate((d) => withoutFrequent(d, storeId, f.name), { kind: 'setFrequent', storeId, name: f.name, changes: { hidden: true } })}
                       >
                         ✕
                       </button>
@@ -214,9 +233,8 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
                 <button
                   type="button"
                   class="ck"
-                  disabled={item.id.startsWith('tmp-')}
                   aria-label={`Check off ${item.name}`}
-                  onClick={() => void mutate((d) => withChecked(d, item.id, true), () => api.updateItem(item.id, { checked: true }))}
+                  onClick={() => void mutate((d) => withChecked(d, item.id, true), { kind: 'updateItem', id: item.id, changes: { checked: true } })}
                 />
                 <span class="nm">
                   {item.name}
@@ -226,9 +244,8 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
                 <button
                   type="button"
                   class="x"
-                  disabled={item.id.startsWith('tmp-')}
                   aria-label={`Delete ${item.name}`}
-                  onClick={() => void mutate((d) => withoutItem(d, item.id), () => api.deleteItem(item.id))}
+                  onClick={() => void mutate((d) => withoutItem(d, item.id), { kind: 'deleteItem', id: item.id })}
                 >
                   ✕
                 </button>
@@ -240,7 +257,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
             <section aria-label="In cart">
               <div class="sec">
                 <span>In cart · {inCart.length}</span>
-                <button type="button" class="link-btn" onClick={() => void mutate((d) => withoutChecked(d, storeId), () => api.clearChecked(storeId))}>
+                <button type="button" class="link-btn" onClick={() => void mutate((d) => withoutChecked(d, storeId), { kind: 'clearChecked', storeId })}>
                   Clear
                 </button>
               </div>
@@ -250,7 +267,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
                     type="button"
                     class="ck on"
                     aria-label={`Put ${item.name} back`}
-                    onClick={() => void mutate((d) => withChecked(d, item.id, false), () => api.updateItem(item.id, { checked: false }))}
+                    onClick={() => void mutate((d) => withChecked(d, item.id, false), { kind: 'updateItem', id: item.id, changes: { checked: false } })}
                   >
                     ✓
                   </button>
@@ -289,7 +306,13 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
         />
       )}
       {notice && <p class="notice">{notice}</p>}
-      {error && <p class="muted status">{error}</p>}
+      {pending > 0 && (
+        <p class="muted status" role="status">
+          {sending && !offline ? `Sending ${changes(pending)}` : offline ? `Offline, ${changes(pending)} waiting` : `${changes(pending)} waiting`}
+        </p>
+      )}
+      {error && !(pending > 0 && offline) && <p class="muted status">{error}</p>}
+      {problem && <p class="error">{problem}</p>}
     </main>
   );
 }

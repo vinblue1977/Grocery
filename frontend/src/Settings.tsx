@@ -105,7 +105,7 @@ export function Settings({ api, lists, session, onSignedOut, onBack }: Props) {
                   e.preventDefault();
                   const name = renaming.name.trim();
                   setRenaming(null);
-                  if (name) void lists.mutate((d) => withRenamedStore(d, store.id, name), () => api.renameStore(store.id, name));
+                  if (name) void lists.mutate((d) => withRenamedStore(d, store.id, name), { kind: 'renameStore', id: store.id, name });
                 }}
               >
                 <input value={renaming.name} maxLength={80} onInput={(e) => setRenaming({ id: store.id, name: e.currentTarget.value })} />
@@ -124,7 +124,7 @@ export function Settings({ api, lists, session, onSignedOut, onBack }: Props) {
                     onClick={() => {
                       if (confirming !== store.id) return setConfirming(store.id);
                       setConfirming(null);
-                      void lists.mutate((d) => withoutStore(d, store.id), () => api.deleteStore(store.id));
+                      void lists.mutate((d) => withoutStore(d, store.id), { kind: 'deleteStore', id: store.id });
                     }}
                   >
                     {confirming === store.id ? 'Delete it and its items?' : 'Delete'}

@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Item, Snapshot } from './api';
 import {
+  applyOp,
   forStore,
   pickStore,
   suggestionsFor,
   withChecked,
   withNewItem,
+  withNewStore,
   withoutChecked,
   withoutFrequent,
   withoutItem,
@@ -39,7 +41,8 @@ describe('list state', () => {
   });
 
   it('applies instant edits without touching the original', () => {
-    expect(withNewItem(data, 'tmp', 'c', 'Tea', 'Yara').items.at(-1)).toMatchObject({ id: 'tmp', name: 'Tea', addedBy: 'Yara', checked: false });
+    expect(withNewItem(data, 'abc123abc123', 'c', 'Tea', 'Yara').items.at(-1)).toMatchObject({ id: 'abc123abc123', name: 'Tea', addedBy: 'Yara', checked: false });
+    expect(withNewStore(data, 'abc123abc123', 'Aldi').stores.at(-1)).toEqual({ id: 'abc123abc123', name: 'Aldi', order: 2 });
     expect(withChecked(data, 'milk', true).items[0]?.checked).toBe(true);
     expect(withoutItem(data, 'milk').items.map((i) => i.id)).toEqual(['eggs', 'rice']);
     expect(withoutChecked(data, 'c').items.map((i) => i.id)).toEqual(['milk', 'rice']);
@@ -75,5 +78,54 @@ describe('suggestions', () => {
   it('pin and remove update the row at once, matching any case', () => {
     expect(withPinned(withFreq, 'c', 'bananas', true).frequent[1]?.pinned).toBe(true);
     expect(withoutFrequent(withFreq, 'c', 'MILK').frequent.map((f) => f.name)).toEqual(['Bananas', 'Ghee']);
+  });
+});
+
+describe('applyOp', () => {
+  const base: Snapshot = {
+    stores: [{ id: 's', name: 'Costco', order: 0 }],
+    items: [item('a', 's'), item('b', 's', true)],
+    frequent: [{ storeId: 's', name: 'Milk', count: 3, pinned: false }],
+  };
+
+  it('adds an item with its own id, once, and only to a store that exists', () => {
+    const op = { kind: 'addItem', id: 'n', storeId: 's', name: 'Tea', note: 'green', addedBy: 'Yara' } as const;
+    const once = applyOp(base, op);
+    expect(once.items.at(-1)).toMatchObject({ id: 'n', name: 'Tea', note: 'green', addedBy: 'Yara', checked: false });
+    expect(applyOp(once, op).items).toHaveLength(3);
+    expect(applyOp(base, { ...op, storeId: 'gone' })).toBe(base);
+  });
+
+  it('updates, deletes and clears', () => {
+    expect(applyOp(base, { kind: 'updateItem', id: 'a', changes: { checked: true } }).items[0]?.checked).toBe(true);
+    expect(applyOp(base, { kind: 'updateItem', id: 'a', changes: { name: 'Z', note: 'n' } }).items[0]).toMatchObject({ name: 'Z', note: 'n' });
+    expect(applyOp(base, { kind: 'deleteItem', id: 'a' }).items.map((i) => i.id)).toEqual(['b']);
+    expect(applyOp(base, { kind: 'clearChecked', storeId: 's' }).items.map((i) => i.id)).toEqual(['a']);
+  });
+
+  it('adds, renames and deletes stores', () => {
+    const added = applyOp(base, { kind: 'addStore', id: 't', name: 'Aldi' });
+    expect(added.stores.map((s) => s.id)).toEqual(['s', 't']);
+    expect(applyOp(added, { kind: 'addStore', id: 't', name: 'Aldi' }).stores).toHaveLength(2);
+    expect(applyOp(base, { kind: 'renameStore', id: 's', name: 'BJs' }).stores[0]?.name).toBe('BJs');
+    expect(applyOp(base, { kind: 'deleteStore', id: 's' })).toEqual({ stores: [], items: [], frequent: [] });
+  });
+
+  it('pins and hides suggestions', () => {
+    expect(applyOp(base, { kind: 'setFrequent', storeId: 's', name: 'milk', changes: { pinned: true } }).frequent[0]?.pinned).toBe(true);
+    expect(applyOp(base, { kind: 'setFrequent', storeId: 's', name: 'Milk', changes: { hidden: true } }).frequent).toEqual([]);
+  });
+
+  it('does nothing when the target is gone', () => {
+    for (const op of [
+      { kind: 'updateItem', id: 'zz', changes: { checked: true } },
+      { kind: 'deleteItem', id: 'zz' },
+      { kind: 'renameStore', id: 'zz', name: 'x' },
+      { kind: 'deleteStore', id: 'zz' },
+      { kind: 'clearChecked', storeId: 'zz' },
+      { kind: 'setFrequent', storeId: 'zz', name: 'x', changes: { pinned: true } },
+    ] as const) {
+      expect(applyOp(base, op)).toEqual(base);
+    }
   });
 });

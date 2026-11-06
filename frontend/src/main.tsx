@@ -1,5 +1,6 @@
 import { render } from 'preact';
 import { App } from './App';
+import { pendingCount } from './queue';
 import './style.css';
 import { setupServiceWorker } from './swUpdate';
 import { applyTheme, loadPref, watchSystem } from './theme';
@@ -8,5 +9,5 @@ applyTheme(loadPref());
 watchSystem(loadPref);
 render(<App />, document.getElementById('app') as HTMLElement);
 
-// No unsent edits can exist yet (there is no write queue); pass a real check here when one is added.
-setupServiceWorker(() => false);
+// A reload waits while edits are queued (they are saved on this device anyway, so this only avoids churn).
+setupServiceWorker(() => pendingCount() > 0);

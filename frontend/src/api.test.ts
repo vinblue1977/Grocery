@@ -17,6 +17,33 @@ describe('api', () => {
     expect(init.body).toBe(JSON.stringify({ code: 'CODE1234', deviceName: 'Yara' }));
   });
 
+  it('cuts off a request that hangs and reports it as offline (status 0)', async () => {
+    vi.useFakeTimers();
+    const hang = vi.fn().mockImplementation(
+      (_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))),
+    );
+    const api = createApi('https://x.test', () => 'tok', hang, 20000);
+    const result = api.sync().catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(19999);
+    expect(hang).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(2);
+    const err = await result;
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(0);
+    vi.useRealTimers();
+  });
+
+  it('sends a client-chosen id with a new item or store, and treats a 200 replay as success', async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(ok({ id: 'abc123abc123', name: 'Tea' }, 200)));
+    const api = createApi('https://x.test', () => 'tok', fetchMock);
+    await expect(api.addItem('c', 'Tea', undefined, 'abc123abc123')).resolves.toMatchObject({ id: 'abc123abc123' });
+    await expect(api.addStore('Aldi', 'def456def456')).resolves.toBeDefined();
+    const bodies = fetchMock.mock.calls.map((c) => (c[1] as RequestInit).body);
+    expect(bodies[0]).toBe(JSON.stringify({ storeId: 'c', name: 'Tea', id: 'abc123abc123' }));
+    expect(bodies[1]).toBe(JSON.stringify({ name: 'Aldi', id: 'def456def456' }));
+  });
+
   it('turns error responses and network failures into ApiError', async () => {
     const bad = createApi('https://x.test', () => null, vi.fn().mockResolvedValue(ok({ error: 'sign in required' }, 401)));
     await expect(bad.me()).rejects.toMatchObject({ status: 401, message: 'sign in required' });
