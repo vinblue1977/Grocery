@@ -74,7 +74,8 @@ def _route(
     if (method, path) == ("GET", "/sync"):
         return _response(200, lists.sync(table, session))
     if (method, path) == ("POST", "/stores"):
-        return _response(201, lists.add_store(table, session, body.get("name")))
+        store, created = lists.add_store(table, session, body.get("name"), body.get("id"))
+        return _response(201 if created else 200, store)
     if route == ("PATCH", "stores", 2):
         return _response(200, lists.rename_store(table, session, parts[1], body.get("name")))
     if route == ("DELETE", "stores", 2):
@@ -93,7 +94,10 @@ def _route(
         return _response(201, lists.add_items(table, session, body.get("items"), _device_name(table, session)))
     if (method, path) == ("POST", "/items"):
         added_by = _device_name(table, session)
-        return _response(201, lists.add_item(table, session, body.get("storeId"), body.get("name"), body.get("note"), added_by))
+        item, created = lists.add_item(
+            table, session, body.get("storeId"), body.get("name"), body.get("note"), added_by, body.get("id")
+        )
+        return _response(201 if created else 200, item)
     if route == ("PATCH", "items", 2):
         return _response(200, lists.update_item(table, session, parts[1], body))
     if route == ("DELETE", "items", 2):
