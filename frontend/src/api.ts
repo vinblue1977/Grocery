@@ -16,6 +16,27 @@ export interface Device {
   current: boolean;
 }
 
+export interface Store {
+  id: string;
+  name: string;
+  order: number;
+}
+
+export interface Item {
+  id: string;
+  storeId: string;
+  name: string;
+  note: string;
+  checked: boolean;
+  addedBy: string;
+  updatedAt: number;
+}
+
+export interface Snapshot {
+  stores: Store[];
+  items: Item[];
+}
+
 interface Credentials {
   householdId: string;
   deviceId: string;
@@ -29,6 +50,14 @@ export interface Api {
   invite(): Promise<{ code: string; expiresAt: number }>;
   devices(): Promise<Device[]>;
   revoke(deviceId: string): Promise<void>;
+  sync(): Promise<Snapshot>;
+  addStore(name: string): Promise<Store>;
+  renameStore(id: string, name: string): Promise<Store>;
+  deleteStore(id: string): Promise<void>;
+  clearChecked(storeId: string): Promise<void>;
+  addItem(storeId: string, name: string, note?: string): Promise<Item>;
+  updateItem(id: string, changes: Partial<Pick<Item, 'checked' | 'name' | 'note'>>): Promise<Item>;
+  deleteItem(id: string): Promise<void>;
 }
 
 export function createApi(baseUrl: string, getToken: () => string | null, fetchImpl: typeof fetch = fetch): Api {
@@ -62,6 +91,16 @@ export function createApi(baseUrl: string, getToken: () => string | null, fetchI
     invite: () => request('POST', '/invites'),
     devices: async () => (await request<{ devices: Device[] }>('GET', '/devices')).devices,
     revoke: (deviceId) => request('DELETE', `/devices/${encodeURIComponent(deviceId)}`),
+    sync: () => request('GET', '/sync'),
+    addStore: (name) => request('POST', '/stores', { name }),
+    renameStore: (id, name) => request('PATCH', `/stores/${encodeURIComponent(id)}`, { name }),
+    deleteStore: (id) => request('DELETE', `/stores/${encodeURIComponent(id)}`),
+    clearChecked: async (storeId) => {
+      await request('POST', `/stores/${encodeURIComponent(storeId)}/clear`);
+    },
+    addItem: (storeId, name, note) => request('POST', '/items', { storeId, name, ...(note ? { note } : {}) }),
+    updateItem: (id, changes) => request('PATCH', `/items/${encodeURIComponent(id)}`, changes),
+    deleteItem: (id) => request('DELETE', `/items/${encodeURIComponent(id)}`),
   };
 }
 
