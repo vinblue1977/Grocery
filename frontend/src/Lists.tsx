@@ -54,7 +54,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
   const picker = useRef<HTMLInputElement>(null);
   const itemInput = useRef<HTMLInputElement>(null);
   const storeInput = useRef<HTMLInputElement>(null);
-  const { data, error, mutate, pending, sending, offline, problem, dismissProblem } = lists;
+  const { data, serverSnapshot, error, mutate, pending, sending, offline, problem, dismissProblem } = lists;
 
   // A store chosen when it was added but never created (the add was refused) must not linger as the remembered selection.
   const stores = data?.stores;
@@ -86,26 +86,33 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
     };
   }, []);
 
-  // The celebration only belongs to a store that is still empty of to-buy items. A tick waiting offline still celebrates; one the
-  // queue gave up on (`problem`) is rolled back, so the card goes.
+  // The celebration only belongs to a store that is still empty of to-buy items. A tick waiting offline still celebrates.
   useEffect(() => {
-    if (celebrating && (problem || data?.items.some((i) => i.storeId === celebrating && !i.checked))) setCelebrating(null);
-  }, [data, problem, celebrating]);
+    if (celebrating && data?.items.some((i) => i.storeId === celebrating && !i.checked)) setCelebrating(null);
+  }, [data, celebrating]);
 
+  // A NEW "could not be saved" message means the queue gave up on an edit (the tick is rolled back), so the card goes; an old
+  // banner that is still showing must not cancel a celebration.
   useEffect(() => {
-    if (!data) return;
+    if (problem) setCelebrating(null);
+  }, [problem]);
+
+  // News comes only from what the server sent (never the cache, never queued edits shown on top). The first such list is just
+  // the baseline; every later one is compared with the one before, however old the items are.
+  useEffect(() => {
+    if (!serverSnapshot) return;
     const before = seen.current;
-    seen.current = data.items;
-    if (!before) return; // the first load is not news
-    const arrival = arrivalFromOthers(before, data.items, session.deviceName, Date.now());
+    seen.current = serverSnapshot.items;
+    if (!before) return;
+    const arrival = arrivalFromOthers(before, serverSnapshot.items, session.deviceName);
     if (!arrival) return;
-    const store = data.stores.find((s) => s.id === arrival.storeId)?.name ?? 'the list';
+    const store = serverSnapshot.stores.find((s) => s.id === arrival.storeId)?.name ?? 'the list';
     const where = arrival.storeCount === 1 ? ` to ${store}` : '';
     say(`${arrival.by} added ${arrival.count} item${arrival.count === 1 ? '' : 's'}${where}`, arrival.storeId);
     setFresh((old) => [...old, ...arrival.ids]); // overlapping batches merge and share one timer
     clearTimeout(freshTimer.current);
     freshTimer.current = setTimeout(() => setFresh([]), FRESH_MS);
-  }, [data]);
+  }, [serverSnapshot]);
 
   const hi = greeting(new Date().getHours(), session.deviceName);
   const header = (

@@ -6,6 +6,8 @@ import { Lists } from './Lists';
 
 vi.mock('./scan', () => ({ shrinkPhoto: vi.fn().mockResolvedValue('BASE64') }));
 import { useLists, type ListsState } from './useLists';
+import { withNewItem } from './listState';
+import { serialiseSnapshot } from './snapshotCache';
 
 const snapshot = (): Snapshot => ({
   stores: [
@@ -652,12 +654,84 @@ describe('useLists', () => {
       expect(root.querySelectorAll('.it.pop').length).toBe(2);
     });
 
-    it('does not announce old items from a stale snapshot', async () => {
+    it('announces items from someone else on a later sync however old they are', async () => {
       const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
       await flush();
-      (api.sync as ReturnType<typeof vi.fn>).mockResolvedValue(withExtra([{ ...theirs('Jam', 'Yaso'), updatedAt: Date.now() - 10 * 60 * 1000 }]));
+      (api.sync as ReturnType<typeof vi.fn>).mockResolvedValue(withExtra([{ ...theirs('Jam', 'Yaso'), updatedAt: 1 }]));
       await resync();
+      expect(root.querySelector('.toast')?.textContent).toContain('Yaso added 1 item to Costco');
+    });
+
+    it('treats the cached list and the first network list as baselines, not news', async () => {
+      localStorage.setItem('grocery.snapshot', serialiseSnapshot('h', snapshot()));
+      (api.sync as ReturnType<typeof vi.fn>).mockResolvedValue(withExtra([theirs('Jam', 'Yaso')]));
+      const Cached = () => {
+        const lists = useLists(api, vi.fn(), 'h');
+        return <Lists api={api} lists={lists} session={session} onOpenSettings={() => undefined} />;
+      };
+      const root = mount(<Cached />);
+      expect(root.textContent).toContain('Milk'); // the cached list is on screen at once
       expect(root.querySelector('.toast')).toBeNull();
+      await flush();
+      expect(root.textContent).toContain('Jam');
+      expect(root.querySelector('.toast')).toBeNull(); // the first network list only sets the baseline
+      (api.sync as ReturnType<typeof vi.fn>).mockResolvedValue(withExtra([theirs('Jam', 'Yaso'), theirs('Tea', 'Yaso')]));
+      await resync();
+      expect(root.querySelector('.toast')?.textContent).toContain('Yaso added 1 item to Costco');
+    });
+
+    it("never diffs optimistic data: a rolled-back own add does not hide the other person's item with the same id", async () => {
+      (api.addItem as ReturnType<typeof vi.fn>).mockRejectedValue(new ApiError(400, 'nope'));
+      let state: ListsState | undefined;
+      const Capture = () => {
+        state = useLists(api, vi.fn());
+        return <Lists api={api} lists={state} session={session} onOpenSettings={() => undefined} />;
+      };
+      const root = mount(<Capture />);
+      await flush();
+      await act(async () => {
+        await state?.mutate((d) => withNewItem(d, 'same', 'c', 'Tea', 'Vinod'), { kind: 'addItem', id: 'same', storeId: 'c', name: 'Tea', addedBy: 'Vinod' });
+      });
+      await flush();
+      expect(root.querySelector('.toast')).toBeNull();
+      (api.sync as ReturnType<typeof vi.fn>).mockResolvedValue(withExtra([{ ...theirs('same', 'Yaso'), name: 'Tea' }]));
+      await resync();
+      expect(root.querySelector('.toast')?.textContent).toContain('Yaso added 1 item');
+    });
+
+    it('gives the celebration card a status role and moves focus to it', async () => {
+      const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+      await flush();
+      await click(root.querySelector('[aria-label="Check off Milk"]'));
+      const card = root.querySelector('.celebrate');
+      expect(card?.getAttribute('role')).toBe('status');
+      expect(document.activeElement).toBe(card);
+    });
+
+    it('an old "could not be saved" banner does not cancel a later celebration', async () => {
+      (api.updateItem as ReturnType<typeof vi.fn>).mockRejectedValue(new ApiError(400, 'nope'));
+      const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+      await flush();
+      await click(root.querySelector('[aria-label="Check off Milk"]'));
+      await flush();
+      expect(root.textContent).toContain('could not be saved'); // the banner is showing and the tick was rolled back
+      (api.updateItem as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      const done = snapshot();
+      (api.sync as ReturnType<typeof vi.fn>).mockResolvedValue({ ...done, items: done.items.map((i) => (i.id === 'milk' ? { ...i, checked: true } : i)) });
+      await click(root.querySelector('[aria-label="Check off Milk"]'));
+      await flush();
+      expect(root.querySelector('.celebrate')).not.toBeNull();
+      expect(root.textContent).toContain('could not be saved'); // still showing, and the card survived it
+    });
+
+    it('a new dropped tick clears the celebration', async () => {
+      (api.updateItem as ReturnType<typeof vi.fn>).mockRejectedValue(new ApiError(400, 'nope'));
+      const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+      await flush();
+      await click(root.querySelector('[aria-label="Check off Milk"]'));
+      expect(root.querySelector('.celebrate')).not.toBeNull(); // shown at once, before the server has answered
+      await flush();
+      expect(root.querySelector('.celebrate')).toBeNull();
     });
 
     it('summarises arrivals across stores without naming one', async () => {

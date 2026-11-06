@@ -11,18 +11,15 @@ export interface Arrival {
   ids: string[];
 }
 
-export const RECENT_MS = 2 * 60 * 1000;
-
 /**
- * What another person added since the last sync, for the toast. Only items touched in the last two minutes count, so a
- * stale cached snapshot catching up never announces old items. Items you added yourself (compared by first name) and
- * unsaved placeholders are ignored. The person with the most new items is reported, across all stores.
+ * What another person added since the previous server list, for the toast, whatever the age of the items. Items you added
+ * yourself (compared by first name) are ignored. The person with the most new items is reported, across all stores.
  */
-export function arrivalFromOthers(before: Item[], after: Item[], me: string, now: number): Arrival | null {
+export function arrivalFromOthers(before: Item[], after: Item[], me: string): Arrival | null {
   const known = new Set(before.map((i) => i.id));
   const people = new Map<string, { by: string; perStore: Map<string, number>; ids: string[] }>();
   for (const item of after) {
-    if (known.has(item.id) || item.id.startsWith('tmp-') || samePerson(item.addedBy, me) || now - item.updatedAt > RECENT_MS) continue;
+    if (known.has(item.id) || samePerson(item.addedBy, me)) continue;
     const by = firstWord(item.addedBy) || 'Someone';
     const person = people.get(by.toLowerCase()) ?? { by, perStore: new Map<string, number>(), ids: [] as string[] };
     person.perStore.set(item.storeId, (person.perStore.get(item.storeId) ?? 0) + 1);

@@ -32,6 +32,18 @@ describe('emojiFor', () => {
     expect(emojiFor('Dog food')).toBe('🐾');
     expect(emojiFor('Cat litter')).toBe('🐾');
   });
+  it('knows phrases that differ from their last word', () => {
+    expect(emojiFor('Black pepper')).toBe('🧂');
+    expect(emojiFor('Peanut butter')).toBe('🥜');
+    expect(emojiFor('Coconut milk')).toBe('🥥');
+    expect(emojiFor('Egg noodles')).toBe('🍜');
+    expect(emojiFor('Chicken stock')).toBe('🍲');
+    expect(emojiFor('Hot sauce')).toBe('🌶️');
+    expect(emojiFor('Ice cream')).toBe('🍨');
+    expect(emojiFor('Sweet potatoes')).toBe('🍠');
+    expect(emojiFor('Butter')).toBe('🧈'); // single words are unchanged
+    expect(emojiFor('Pepper')).toBe('🫑');
+  });
   it('falls back to a basket', () => {
     expect(emojiFor('Mystery thing')).toBe('🧺');
     expect(emojiFor('')).toBe('🧺');

@@ -78,6 +78,18 @@ const GROUPS: Record<string, string> = {
   '💡': 'bulb',
 };
 
+/** Phrases that mean something other than their last word ("peanut butter" is not butter). Checked before single words. */
+const PHRASES: Record<string, string> = {
+  'black pepper': '🧂',
+  'peanut butter': '🥜',
+  'coconut milk': '🥥',
+  'egg noodle': '🍜',
+  'chicken stock': '🍲',
+  'hot sauce': '🌶️',
+  'ice cream': '🍨',
+  'sweet potato': '🍠',
+};
+
 const WORDS = new Map<string, string>();
 for (const [emoji, words] of Object.entries(GROUPS)) for (const word of words.split(' ')) WORDS.set(word, emoji);
 
@@ -91,6 +103,11 @@ function singular(word: string): string {
 /** The emoji for an item name: whole words only (case-insensitive), the last matching word wins ("basmati rice"), else a basket. */
 export function emojiFor(name: string): string {
   const words = name.toLowerCase().match(/[a-z]+/g) ?? [];
+  const pairs = words.slice(1).map((w, i) => `${singular(words[i] ?? '')} ${singular(w)}`);
+  for (const pair of pairs.reverse()) {
+    const emoji = PHRASES[pair];
+    if (emoji) return emoji;
+  }
   for (const word of words.reverse()) {
     const emoji = WORDS.get(singular(word));
     if (emoji) return emoji;

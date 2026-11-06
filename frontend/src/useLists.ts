@@ -10,6 +10,10 @@ const IDLE_EVERY = 6; // while idle, only every 6th tick polls (30 s)
 
 export interface ListsState {
   data: Snapshot | null;
+  /** The last list the server itself sent in this page session (never the cache, never with queued edits on top); null until a sync succeeds. */
+  serverSnapshot: Snapshot | null;
+  /** True once a sync has succeeded in this page session. */
+  synced: boolean;
   error: string;
   /** Edits made on this device that the server has not confirmed yet (shown on screen already, replayed in order). */
   pending: number;
@@ -79,6 +83,7 @@ export function useLists(api: Api, onSignedOut: () => void, householdId?: string
   const [sending, setSending] = useState(false);
   const [offline, setOffline] = useState(false);
   const [problem, setProblem] = useState('');
+  const [serverSnapshot, setServerSnapshot] = useState<Snapshot | null>(null);
   const dataRef = useRef<Snapshot | null>(cached);
   const server = useRef<Snapshot | null>(householdId ? loadSnapshot(householdId) : null); // last list the server sent, without queued edits
   const inFlight = useRef(0);
@@ -114,6 +119,7 @@ export function useLists(api: Api, onSignedOut: () => void, householdId?: string
       const next = await api.sync();
       if (alive.current && mine === requestSeq.current && edits === editSeq.current && inFlight.current === 0) {
         server.current = next;
+        setServerSnapshot(next);
         show(applyOps(next, queue.current ?? [])); // edits still waiting to be sent stay on screen
         if (householdId) saveSnapshot(householdId, next);
         setError('');
@@ -266,5 +272,5 @@ export function useLists(api: Api, onSignedOut: () => void, householdId?: string
 
   const dismissProblem = useCallback(() => setProblem(''), []);
 
-  return { data, error, pending, sending, offline, problem, dismissProblem, mutate, refresh };
+  return { data, serverSnapshot, synced: serverSnapshot !== null, error, pending, sending, offline, problem, dismissProblem, mutate, refresh };
 }

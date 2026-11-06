@@ -3,27 +3,26 @@ import type { Item } from './api';
 import { arrivalFromOthers } from './news';
 import { isLastToBuy, nextStore } from './listState';
 
-const item = (id: string, addedBy: string, storeId = 'p', checked = false): Item => ({ id, storeId, name: id, note: '', checked, addedBy, updatedAt: NOW - 1000 });
-const NOW = 1_000_000_000;
+const item = (id: string, addedBy: string, storeId = 'p', checked = false): Item => ({ id, storeId, name: id, note: '', checked, addedBy, updatedAt: 1 });
 
 describe('arrivalFromOthers', () => {
   const before = [item('a', 'Vinod')];
   it('reports the batch another person added', () => {
     const after = [...before, item('b', 'Yaso'), item('c', "Yaso's phone"), item('d', 'Yaso', 'c')];
-    expect(arrivalFromOthers(before, after, 'Vinod', NOW)).toEqual({ by: 'Yaso', storeId: 'p', storeCount: 2, count: 3, ids: ['b', 'c', 'd'] });
-    expect(arrivalFromOthers(before, after.slice(0, 3), 'Vinod', NOW)).toMatchObject({ storeCount: 1, count: 2 });
+    expect(arrivalFromOthers(before, after, 'Vinod')).toEqual({ by: 'Yaso', storeId: 'p', storeCount: 2, count: 3, ids: ['b', 'c', 'd'] });
+    expect(arrivalFromOthers(before, after.slice(0, 3), 'Vinod')).toMatchObject({ storeCount: 1, count: 2 });
   });
-  it('ignores your own items, including from another device, and unsaved placeholders', () => {
-    const after = [...before, item('b', "Vinod's iPad"), item('tmp-1', 'Yaso')];
-    expect(arrivalFromOthers(before, after, 'Vinod', NOW)).toBeNull();
-    expect(arrivalFromOthers(before, [item('z', '')], 'Vinod', NOW)).not.toBeNull(); // an unnamed adder is someone else
+  it('ignores your own items, including from another device, and nothing else', () => {
+    const after = [...before, item('b', "Vinod's iPad"), item('b2', "Vinod's iPad")];
+    expect(arrivalFromOthers(before, after, 'Vinod')).toBeNull();
+    expect(arrivalFromOthers(before, [item('z', '')], 'Vinod')).not.toBeNull(); // an unnamed adder is someone else
   });
   it('reports nothing when nothing is new', () => {
-    expect(arrivalFromOthers(before, before, 'Yaso', NOW)).toBeNull();
+    expect(arrivalFromOthers(before, before, 'Yaso')).toBeNull();
   });
-  it('ignores items that are old, as a stale cached snapshot catching up would bring', () => {
-    const old = { ...item('b', 'Yaso'), updatedAt: NOW - 5 * 60 * 1000 };
-    expect(arrivalFromOthers(before, [...before, old], 'Vinod', NOW)).toBeNull();
+  it('announces items from someone else however old they are', () => {
+    const old = { ...item('b', 'Yaso'), updatedAt: 1 };
+    expect(arrivalFromOthers(before, [...before, old], 'Vinod')).toMatchObject({ by: 'Yaso', count: 1 });
   });
 });
 

@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'preact/hooks';
+
 interface Props {
   store: string;
   next: string | null;
@@ -19,8 +21,12 @@ const CONFETTI = Array.from({ length: 24 }, (_, i) => ({
 
 /** Shown in place of the to-buy list when the last item of a store is ticked. */
 export function Celebration({ store, next, onNext, onClear, onDismiss }: Props) {
+  const card = useRef<HTMLElement>(null);
+  useEffect(() => {
+    card.current?.focus(); // the ticked checkbox just left the list, so keyboard and screen-reader focus moves here
+  }, []);
   return (
-    <section class="celebrate" aria-label="Store finished">
+    <section class="celebrate" role="status" aria-label="Store finished" tabIndex={-1} ref={card}>
       <div class="confetti" aria-hidden="true">
         {CONFETTI.map((c, i) => (
           <i
