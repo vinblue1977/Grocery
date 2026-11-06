@@ -31,6 +31,12 @@ def test_api_is_a_function_url_not_api_gateway():
     t.has_resource_properties("AWS::Lambda::Function", {"Architectures": ["arm64"], "Runtime": "python3.14"})
 
 
+def test_invite_codes_expire_through_dynamodb_ttl():
+    _template().has_resource_properties(
+        "AWS::DynamoDB::Table", {"TimeToLiveSpecification": {"AttributeName": "ttl", "Enabled": True}}
+    )
+
+
 def test_logs_expire():
     _template().has_resource_properties("AWS::Logs::LogGroup", {"RetentionInDays": 7})
 
