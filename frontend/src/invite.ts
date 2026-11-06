@@ -18,10 +18,10 @@ export function buildInviteLink(pageUrl: string, code: string): string {
   return `${base}#${PARAM}${encodeURIComponent(code)}`;
 }
 
-/** Accepts what a person pastes: the whole invite link, or just the code. */
+/** Accepts what a person pastes: the invite link (even inside a message), `join=CODE`, or just the code. */
 export function parseInviteInput(input: string): string | null {
   const text = input.trim();
-  const hashAt = text.indexOf('#');
-  if (hashAt >= 0) return parseJoinCode(text.slice(hashAt));
+  const inLink = /join=([\w-]{8,100})/.exec(text);
+  if (inLink?.[1]) return inLink[1];
   return /^[\w-]{8,100}$/.test(text) ? text : null;
 }

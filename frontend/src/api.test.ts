@@ -58,6 +58,8 @@ describe('pasted invites', () => {
   it('accepts a full link or a bare code', () => {
     expect(parseInviteInput(' https://u.github.io/Grocery/#join=abc_DEF-1234567 ')).toBe('abc_DEF-1234567');
     expect(parseInviteInput('abc_DEF-1234567')).toBe('abc_DEF-1234567');
+    expect(parseInviteInput('join=abc_DEF-1234567')).toBe('abc_DEF-1234567');
+    expect(parseInviteInput('Join us: https://u.github.io/Grocery/?x=1#join=abc_DEF-1234567.')).toBe('abc_DEF-1234567');
   });
 
   it('rejects anything else', () => {

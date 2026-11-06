@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks';
 import type { Api } from './api';
-import { toSession } from './api';
+import { ApiError, toSession } from './api';
 import { parseInviteInput } from './invite';
 import { applyTheme, savePref } from './theme';
 import type { Session } from './session';
@@ -13,6 +13,10 @@ interface Props {
 
 function defaultName(): string {
   return /iPad/.test(navigator.userAgent) ? 'iPad' : 'iPhone';
+}
+
+function isIos(): boolean {
+  return /iPhone|iPad|iPod/.test(navigator.userAgent);
 }
 
 /** True inside the Home Screen app. iOS gives it its own storage, separate from Safari's. */
@@ -30,8 +34,9 @@ export function Welcome({ api, joinCode, onSignedIn }: Props) {
   const submit = async (event: Event) => {
     event.preventDefault();
     const deviceName = name.trim() || defaultName();
-    const code = joinCode ?? (pasted.trim() ? parseInviteInput(pasted) : null);
-    if (pasted.trim() && !code) {
+    const wantsToJoin = joinCode !== null || pasted.length > 0; // any pasted text, even blanks, means "join", never "create"
+    const code = joinCode ?? parseInviteInput(pasted);
+    if (wantsToJoin && !code) {
       setError("That doesn't look like an invite link or code");
       return;
     }
@@ -44,7 +49,13 @@ export function Welcome({ api, joinCode, onSignedIn }: Props) {
       applyTheme(initialTheme);
       onSignedIn(toSession(creds, deviceName));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong');
+      setError(
+        err instanceof ApiError && err.status === 409
+          ? 'This app is already set up. Paste an invite link or code from the other device.'
+          : err instanceof Error
+            ? err.message
+            : 'Something went wrong',
+      );
       setBusy(false);
     }
   };
@@ -59,7 +70,7 @@ export function Welcome({ api, joinCode, onSignedIn }: Props) {
             ? 'You were invited. Name this device and you stay signed in.'
             : 'You sign in once on this device. Invite your partner from Settings afterwards.'}
         </p>
-        {!joinCode && !isHomeScreenApp() && (
+        {!joinCode && !pasted && isIos() && !isHomeScreenApp() && (
           <p class="tip">
             Tip: tap Share, then Add to Home Screen, and open Grocery from there before signing in. The Home Screen app keeps its
             own sign-in, separate from Safari.
@@ -67,7 +78,7 @@ export function Welcome({ api, joinCode, onSignedIn }: Props) {
         )}
         <label class="field">
           <span class="muted">Your name</span>
-          <input value={name} maxLength={40} placeholder={defaultName()} onInput={(e) => setName(e.currentTarget.value)} />
+          <input value={name} maxLength={40} placeholder="e.g. Vinod" onInput={(e) => setName(e.currentTarget.value)} />
         </label>
         {!joinCode && (
           <label class="field">
@@ -77,7 +88,7 @@ export function Welcome({ api, joinCode, onSignedIn }: Props) {
         )}
         {error && <p class="error">{error}</p>}
         <button class="primary" type="submit" disabled={busy}>
-          {busy ? 'Please wait…' : joinCode || pasted.trim() ? 'Join' : 'Create household'}
+          {busy ? 'Please wait…' : joinCode || pasted ? 'Join' : 'Create household'}
         </button>
       </form>
     </main>
