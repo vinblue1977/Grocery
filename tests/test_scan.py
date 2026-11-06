@@ -1,0 +1,154 @@
+import base64
+import json
+
+import pytest
+from test_api import call, create
+
+from api import scan
+
+JPEG = b"\xff\xd8\xff\xe0" + b"0" * 100
+PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 100
+
+
+def b64(raw: bytes) -> str:
+    return base64.b64encode(raw).decode()
+
+
+@pytest.fixture
+def me(table):
+    return create("Yaso")
+
+
+def stores(me) -> dict[str, str]:
+    return {s["name"]: s["id"] for s in call("GET", "/sync", token=me["token"])[1]["stores"]}
+
+
+def fake_reply(monkeypatch, text: str) -> list:
+    seen: list = []
+
+    def fake(image: bytes, image_format: str, prompt: str) -> str:
+        seen.append((image, image_format, prompt))
+        return text
+
+    monkeypatch.setattr(scan, "_converse", fake)
+    return seen
+
+
+def test_scan_returns_cleaned_items_with_store_matches(me, monkeypatch):
+    reply = {
+        "items": [
+            {"name": " Milk ", "note": "2 gal", "store": "costco", "unsure": False},
+            {"name": "Toor dal", "note": "1 kg", "store": "Patel", "unsure": False},
+            {"name": "Cinnamon?", "note": "", "store": "Nowhere", "unsure": True},
+            {"name": "   ", "note": "x", "store": None},
+            "junk",
+        ]
+    }
+    seen = fake_reply(monkeypatch, "Here you go:\n```json\n" + json.dumps(reply) + "\n```")
+    ids = stores(me)
+    status, body = call("POST", "/scan", {"image": b64(JPEG)}, me["token"])
+    assert status == 200
+    assert body["items"] == [
+        {"name": "Milk", "note": "2 gal", "storeId": ids["Costco"], "unsure": False},
+        {"name": "Toor dal", "note": "1 kg", "storeId": ids["Patel"], "unsure": False},
+        {"name": "Cinnamon?", "note": "", "storeId": None, "unsure": True},
+    ]
+    assert seen[0][1] == "jpeg"
+    assert "Costco, Patel, Butcher" in seen[0][2]  # the model is told the household's store names
+
+
+def test_png_is_accepted(me, monkeypatch):
+    seen = fake_reply(monkeypatch, '{"items": []}')
+    assert call("POST", "/scan", {"image": b64(PNG)}, me["token"]) == (200, {"items": []})
+    assert seen[0][1] == "png"
+
+
+@pytest.mark.parametrize("image", [None, "", "not base64!!", b64(b"GIF89a" + b"0" * 50), b64(JPEG + b"0" * 1_600_000)])
+def test_bad_images_are_rejected_before_any_model_call(me, monkeypatch, image):
+    seen = fake_reply(monkeypatch, '{"items": []}')
+    assert call("POST", "/scan", {"image": image}, me["token"])[0] == 400
+    assert seen == []
+
+
+@pytest.mark.parametrize("reply", ["no json here", '{"items": "nope"}', '{"other": 1}', "{broken"])
+def test_unusable_model_answers_are_a_502(me, monkeypatch, reply):
+    fake_reply(monkeypatch, reply)
+    status, body = call("POST", "/scan", {"image": b64(JPEG)}, me["token"])
+    assert status == 502
+    assert "Could not read" in body["error"]
+
+
+def test_bedrock_errors_are_a_502(me, monkeypatch):
+    from botocore.exceptions import ClientError
+
+    class Boom:
+        def converse(self, **_):
+            raise ClientError({"Error": {"Code": "ThrottlingException"}}, "Converse")
+
+    monkeypatch.setattr(scan.boto3, "client", lambda *_a, **_k: Boom())
+    assert call("POST", "/scan", {"image": b64(JPEG)}, me["token"])[0] == 502
+
+
+def test_converse_sends_the_image_and_joins_the_reply_text(monkeypatch):
+    calls: list = []
+
+    class Fake:
+        def converse(self, **kwargs):
+            calls.append(kwargs)
+            return {"output": {"message": {"content": [{"text": '{"items":'}, {"text": " []}"}]}}}
+
+    monkeypatch.setattr(scan.boto3, "client", lambda *_a, **_k: Fake())
+    monkeypatch.setenv("BEDROCK_MODEL_ID", "us.anthropic.test")
+    assert scan._converse(JPEG, "jpeg", "p") == '{"items": []}'
+    assert calls[0]["modelId"] == "us.anthropic.test"
+    assert calls[0]["messages"][0]["content"][0]["image"]["source"]["bytes"] == JPEG
+    assert calls[0]["inferenceConfig"]["temperature"] == 0
+
+
+def test_the_daily_limit_stops_the_21st_scan(me, monkeypatch):
+    fake_reply(monkeypatch, '{"items": []}')
+    for _ in range(scan.MAX_SCANS_PER_DAY):
+        assert call("POST", "/scan", {"image": b64(JPEG)}, me["token"])[0] == 200
+    status, body = call("POST", "/scan", {"image": b64(JPEG)}, me["token"])
+    assert status == 429
+    assert "20" in body["error"]
+
+
+def test_scans_need_sign_in(table):
+    create()
+    assert call("POST", "/scan", {"image": b64(JPEG)})[0] == 401
+    assert call("POST", "/items/bulk", {"items": []})[0] == 401
+
+
+def test_bulk_add_creates_items_skips_repeats_and_names_who_added(me):
+    ids = stores(me)
+    items = [{"name": "Milk", "note": "2 gal", "storeId": ids["Costco"]}, {"name": "Dal", "storeId": ids["Patel"]}]
+    status, body = call("POST", "/items/bulk", {"items": items}, me["token"])
+    assert (status, body) == (201, {"added": 2, "skipped": 0})
+    listed = call("GET", "/sync", token=me["token"])[1]["items"]
+    assert sorted((i["name"], i["addedBy"]) for i in listed) == [("Dal", "Yaso"), ("Milk", "Yaso")]
+    again = items + [{"name": "milk", "storeId": ids["Costco"]}, {"name": "Eggs", "storeId": ids["Costco"]}]
+    assert call("POST", "/items/bulk", {"items": again}, me["token"])[1] == {"added": 1, "skipped": 3}
+
+
+def test_bulk_add_validates(me):
+    ids = stores(me)
+    for bad in (
+        None,
+        [],
+        "x",
+        [5],
+        [{"name": "", "storeId": ids["Costco"]}],
+        [{"name": "Milk", "storeId": "nope"}],
+        [{"name": "Milk"}],
+    ):
+        assert call("POST", "/items/bulk", {"items": bad}, me["token"])[0] == 400
+
+
+def test_bulk_add_respects_the_item_limit(me, monkeypatch):
+    from api import lists
+
+    monkeypatch.setattr(lists, "MAX_ITEMS", 2)
+    ids = stores(me)
+    three = [{"name": n, "storeId": ids["Costco"]} for n in ("a", "b", "c")]
+    assert call("POST", "/items/bulk", {"items": three}, me["token"])[0] == 400

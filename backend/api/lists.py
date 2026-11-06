@@ -220,3 +220,47 @@ def clear_checked(table: Any, session: Session, store_id: str) -> int:
         for row in doomed:
             batch.delete_item(Key={"PK": row["PK"], "SK": row["SK"]})
     return len(doomed)
+
+
+def add_items(table: Any, session: Session, entries: object, added_by: str) -> dict[str, int]:
+    """Adds many items at once (a scanned list); ones already to buy in that store are skipped, so a repeat scan is harmless."""
+    if not isinstance(entries, list) or not entries:
+        raise Invalid("items are required")
+    rows = _all(table, session)
+    stores = {r["id"] for r in rows if r["SK"].startswith("STORE#")}
+    existing = {(r["storeId"], r["name"].lower()) for r in rows if r["SK"].startswith("ITEM#") and not r["checked"]}
+    total = sum(1 for r in rows if r["SK"].startswith("ITEM#"))
+    fresh: list[dict[str, Any]] = []
+    skipped = 0
+    for entry in entries[:50]:
+        if not isinstance(entry, dict):
+            raise Invalid("each item must be an object")
+        name = _text(entry.get("name"), MAX_NAME, required=True)
+        store_id = entry.get("storeId")
+        if store_id not in stores:
+            raise Invalid("storeId is not one of your stores")
+        key = (store_id, name.lower())
+        if key in existing:
+            skipped += 1
+            continue
+        existing.add(key)
+        item_id = uuid.uuid4().hex[:12]
+        fresh.append(
+            {
+                "PK": _pk(session),
+                "SK": f"ITEM#{item_id}",
+                "id": item_id,
+                "storeId": store_id,
+                "name": name,
+                "note": _text(entry.get("note"), MAX_NOTE),
+                "checked": False,
+                "addedBy": added_by,
+                "updatedAt": _now(),
+            }
+        )
+    if total + len(fresh) > MAX_ITEMS:
+        raise Invalid(f"at most {MAX_ITEMS} items")
+    with table.batch_writer() as batch:
+        for item in fresh:
+            batch.put_item(Item=item)
+    return {"added": len(fresh), "skipped": skipped}
