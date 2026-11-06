@@ -38,21 +38,9 @@ export function App() {
 function Signed({ api, session, onSignedOut }: { api: Api; session: Session; onSignedOut: () => void }) {
   const [tab, setTab] = useState<'lists' | 'settings'>('lists');
   const lists = useLists(api, onSignedOut);
-  return (
-    <>
-      {tab === 'lists' ? (
-        <Lists api={api} lists={lists} session={session} />
-      ) : (
-        <Settings api={api} lists={lists} session={session} onSignedOut={onSignedOut} />
-      )}
-      <nav class="nav">
-        <button type="button" aria-current={tab === 'lists'} onClick={() => setTab('lists')}>
-          🛒<span>Lists</span>
-        </button>
-        <button type="button" aria-current={tab === 'settings'} onClick={() => setTab('settings')}>
-          ⚙️<span>Settings</span>
-        </button>
-      </nav>
-    </>
+  return tab === 'lists' ? (
+    <Lists api={api} lists={lists} session={session} onOpenSettings={() => setTab('settings')} />
+  ) : (
+    <Settings api={api} lists={lists} session={session} onSignedOut={onSignedOut} onBack={() => setTab('lists')} />
   );
 }
