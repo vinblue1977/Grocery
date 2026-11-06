@@ -175,8 +175,10 @@ export function Settings({ api, lists, session, onSignedOut, onBack }: Props) {
         )}
       </section>
 
-      <section class="card">
-        <strong>Recovery code</strong>
+      <details class="card">
+        <summary>
+          <strong>Recovery code</strong>
+        </summary>
         <p class="muted">
           If you ever lose all your devices, this code gets you back in. Keep it somewhere safe, like a password manager. Anyone
           with it can sign in to your household. Lost or sold a phone? Remove it under Devices, then create a new code here.
@@ -193,7 +195,7 @@ export function Settings({ api, lists, session, onSignedOut, onBack }: Props) {
             <p class="tip">Save it now. It will not be shown again.</p>
           </>
         )}
-      </section>
+      </details>
 
       <section class="card">
         <strong>Devices</strong>
