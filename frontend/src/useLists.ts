@@ -27,7 +27,7 @@ export interface ListsState {
 const BACKOFF_START_MS = 2000;
 const BACKOFF_MAX_MS = 60000;
 const PROBLEM_MS = 8000;
-const MAX_ATTEMPTS = 6; // a server answer (not 'offline') that keeps failing this many times in a row drops the edit
+const MAX_ATTEMPTS = 10; // a suspect failure that repeats this many times in a row (backoff makes it about 6 minutes) drops the edit
 
 function send(api: Api, op: Op): Promise<unknown> {
   switch (op.kind) {
@@ -50,8 +50,10 @@ function send(api: Api, op: Op): Promise<unknown> {
   }
 }
 
-/** Offline, a server hiccup or a busy server: the edit is fine and will work later. */
-const isTransient = (status: number) => status === 0 || status === 408 || status === 429 || status >= 500;
+/** Offline, or the server is busy: the edit is fine, so keep retrying however long it takes (the backoff slows it down). */
+const isBusy = (status: number) => status === 0 || status === 408 || status === 429 || status === 503;
+/** An error answer, or no server answer at all (-1: a bug or bad data), that may be this edit's fault: retry, but give up eventually. */
+const isSuspect = (status: number) => status === -1 || (status >= 500 && status !== 503);
 
 /**
  * Keeps the household's lists in sync: fetches on open and every 5 s while the app is visible and in use (every 30 s when
@@ -149,28 +151,26 @@ export function useLists(api: Api, onSignedOut: () => void, householdId?: string
             if (server.current) server.current = applyOp(server.current, op); // confirmed: it belongs to the base list now
           } catch (err) {
             if (stale()) break;
-            if (!(err instanceof ApiError)) {
-              drop = true; // a bug or bad data, not the network: retrying would never help
-            } else if (err.status === 401) {
+            const status = err instanceof ApiError ? err.status : -1;
+            if (status === 401) {
               signedOut.current(); // sign-out clears the queue; a revoked device could not send it anyway
               break;
-            } else if (isTransient(err.status)) {
-              if (err.status !== 0) {
-                attempts.current = { op, count: (attempts.current.op === op ? attempts.current.count : 0) + 1 };
-              }
+            }
+            if (isBusy(status) || isSuspect(status)) {
+              if (isSuspect(status)) attempts.current = { op, count: (attempts.current.op === op ? attempts.current.count : 0) + 1 };
               if (attempts.current.op === op && attempts.current.count >= MAX_ATTEMPTS) {
-                drop = true; // the server keeps failing on this one edit; don't let it block the rest forever
+                drop = true; // it keeps failing on this one edit; don't let it block the rest forever
               } else {
                 failures.current += 1;
                 retryAt.current = Date.now() + Math.min(BACKOFF_MAX_MS, BACKOFF_START_MS * 2 ** (failures.current - 1));
-                setOffline(err.status === 0);
+                setOffline(status === 0);
                 break;
               }
             } else {
-              drop = true;
+              drop = true; // the server refused this edit (a 4xx): retrying would never help
             }
             // A 404 on anything but an add means the other person already removed the target: nothing left to do.
-            if (drop && !(err instanceof ApiError && err.status === 404 && op.kind !== 'addItem')) dropped += 1;
+            if (drop && !(status === 404 && op.kind !== 'addItem')) dropped += 1;
           }
           failures.current = 0;
           retryAt.current = 0;
