@@ -1,4 +1,4 @@
-"""The Grocery stack: one DynamoDB table, one Lambda behind a function URL, a $1 budget alert and the GitHub deploy role.
+"""The Grocery stack: one DynamoDB table, one Lambda behind a function URL, and the GitHub deploy role (the account's existing budget alert covers cost).
 
 Everything here stays inside the AWS always-free tier: provisioned DynamoDB at or under 25 RCU/WCU, Lambda (1M requests a
 month), a function URL instead of API Gateway, and no PITR, KMS keys, NAT, VPC or Secrets Manager.
@@ -7,7 +7,6 @@ month), a function URL instead of API Gateway, and no PITR, KMS keys, NAT, VPC o
 import re
 
 from aws_cdk import CfnOutput, DefaultStackSynthesizer, Duration, RemovalPolicy, Stack
-from aws_cdk import aws_budgets as budgets
 from aws_cdk import aws_dynamodb as dynamodb
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
@@ -48,7 +47,6 @@ class GroceryStack(Stack):
         CfnOutput(self, "TableName", value=self.table.table_name)
 
         self.api_fn = self._api()
-        self._budget()
         github_repo: str = self.node.try_get_context("githubRepo") or ""
         if github_repo:
             self._github_deploy_role(github_repo)
@@ -98,33 +96,6 @@ class GroceryStack(Stack):
         )
         CfnOutput(self, "ApiUrl", value=url.url)
         return fn
-
-    def _budget(self) -> None:
-        """Emails when the month's cost forecast tops $1, so any leak out of the free tier shows up within days."""
-        email: str = self.node.try_get_context("alertEmail") or ""
-        if not email:
-            return
-        budgets.CfnBudget(
-            self,
-            "CostBudget",
-            budget=budgets.CfnBudget.BudgetDataProperty(
-                budget_type="COST",
-                time_unit="MONTHLY",
-                budget_limit=budgets.CfnBudget.SpendProperty(amount=1, unit="USD"),
-            ),
-            notifications_with_subscribers=[
-                budgets.CfnBudget.NotificationWithSubscribersProperty(
-                    notification=budgets.CfnBudget.NotificationProperty(
-                        comparison_operator="GREATER_THAN",
-                        notification_type=kind,
-                        threshold=threshold,
-                        threshold_type="ABSOLUTE_VALUE",
-                    ),
-                    subscribers=[budgets.CfnBudget.SubscriberProperty(address=email, subscription_type="EMAIL")],
-                )
-                for kind, threshold in (("ACTUAL", 0.5), ("FORECASTED", 1))
-            ],
-        )
 
     def _github_deploy_role(self, github_repo: str) -> None:
         """Role for GitHub Actions in this repo's production environment. Reuses the account's OIDC provider."""

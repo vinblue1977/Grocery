@@ -15,4 +15,4 @@ make check     # everything CI runs: privacy, lint, tests, frontend, audit, cdk-
 
 Merging to `main` runs CI, then deploys the stack with CDK (GitHub OIDC, no stored keys) and the PWA to GitHub Pages.
 
-One-time setup: deploy once from a laptop (`cdk deploy -c alertEmail=...`) to create the GitHub deploy role, then set the `production` environment secrets `AWS_DEPLOY_ROLE_ARN` and `ALERT_EMAIL`, enable Pages (source: GitHub Actions), and add the `AUTOMERGE_TOKEN` secret for Dependabot.
+One-time setup: deploy once from a laptop (`cdk deploy`) to create the GitHub deploy role, then set the `production` environment secrets `AWS_DEPLOY_ROLE_ARN`, enable Pages (source: GitHub Actions), and add the `AUTOMERGE_TOKEN` secret for Dependabot.

@@ -35,14 +35,8 @@ def test_logs_expire():
     _template().has_resource_properties("AWS::Logs::LogGroup", {"RetentionInDays": 7})
 
 
-@pytest.mark.parametrize("email", ["", "me@example.com"])
-def test_budget_only_with_an_alert_email(email: str):
-    t = _template(alertEmail=email) if email else _template()
-    t.resource_count_is("AWS::Budgets::Budget", 1 if email else 0)
-    if email:
-        t.has_resource_properties(
-            "AWS::Budgets::Budget", {"Budget": Match.object_like({"BudgetLimit": {"Amount": 1, "Unit": "USD"}})}
-        )
+def test_no_budget_in_this_stack():
+    _template().resource_count_is("AWS::Budgets::Budget", 0)  # the account already has one
 
 
 def test_deploy_role_only_for_the_production_environment():

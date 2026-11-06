@@ -23,7 +23,7 @@
 
 - Everything must stay inside the AWS always-free tier. No API Gateway, no on-demand DynamoDB, no PITR, KMS keys, NAT, VPC, Secrets Manager, S3 or CloudFront. The PWA is hosted on GitHub Pages.
 - DynamoDB stays provisioned at or under 25 RCU/WCU (`tests/test_infra.py` guards this). Log retention stays at one week.
-- Before adding any AWS resource, check that it is free at this scale; a $1 budget alert emails if anything leaks.
+- Before adding any AWS resource, check that it is free at this scale; the AWS account's existing budget alert (from TennisTracker) emails if anything leaks.
 
 ## Design
 
