@@ -72,7 +72,6 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
     const clean = name.trim();
     if (!clean || !storeId) return;
     setText('');
-    if (itemInput.current) itemInput.current.value = ''; // state may already be '' (no re-render), so clear the field itself
     void mutate(
       (d) => withNewItem(d, `tmp-${++tempCount}`, storeId, clean, session.deviceName),
       () => api.addItem(storeId, clean),
@@ -119,8 +118,8 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
             class="add"
             onSubmit={(e) => {
               e.preventDefault();
-              // Read the field itself: on iPhone, autocorrect can leave the last word out of `text` until the field loses focus.
-              add(itemInput.current?.value ?? '');
+              if (text.trim()) add(text);
+              else itemInput.current?.focus(); // nothing typed: bring up the keyboard instead of doing nothing
             }}
           >
             <input
