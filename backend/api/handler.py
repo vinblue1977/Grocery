@@ -85,6 +85,10 @@ def _route(
     if (method, path) == ("POST", "/scan"):
         image = scan.decode_image(body.get("image"))  # cheap checks first: a bad photo costs no reads and no scan
         return _response(200, {"items": scan.read_list(table, session, image, lists.list_stores(table, session))})
+    if (method, path) == ("PUT", "/frequent"):
+        return _response(
+            200, lists.set_frequent(table, session, body.get("storeId"), body.get("name"), body.get("pinned"), body.get("hidden"))
+        )
     if (method, path) == ("POST", "/items/bulk"):
         return _response(201, lists.add_items(table, session, body.get("items"), _device_name(table, session)))
     if (method, path) == ("POST", "/items"):

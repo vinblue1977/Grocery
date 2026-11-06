@@ -15,7 +15,7 @@ afterEach(() => document.body.replaceChildren());
 describe('navigation', () => {
   it('opens Settings from the header icon, keeps a half-typed item, and returns', async () => {
     const api = {
-      sync: vi.fn().mockResolvedValue({ stores: [{ id: 'c', name: 'Costco', order: 0 }], items: [] }),
+      sync: vi.fn().mockResolvedValue({ stores: [{ id: 'c', name: 'Costco', order: 0 }], items: [], frequent: [] }),
       devices: vi.fn().mockResolvedValue([]),
     } as unknown as Api;
     const root = document.createElement('div');
@@ -46,7 +46,7 @@ describe('navigation', () => {
 
   it('the back link in Settings goes back through history', async () => {
     const api = {
-      sync: vi.fn().mockResolvedValue({ stores: [], items: [] }),
+      sync: vi.fn().mockResolvedValue({ stores: [], items: [], frequent: [] }),
       devices: vi.fn().mockResolvedValue([]),
     } as unknown as Api;
     const back = vi.spyOn(history, 'back').mockImplementation(() => undefined);

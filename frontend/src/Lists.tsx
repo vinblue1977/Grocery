@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Api } from './api';
-import { forStore, pickStore, withChecked, withNewItem, withoutChecked, withoutItem } from './listState';
+import { forStore, pickStore, suggestionsFor, withChecked, withNewItem, withoutChecked, withoutFrequent, withoutItem, withPinned } from './listState';
 import type { Session } from './session';
 import { ScanSheet } from './ScanSheet';
 import type { ListsState } from './useLists';
@@ -27,6 +27,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
   const [wanted, setWanted] = useState<string | null>(remembered);
   const [text, setText] = useState('');
   const [addingStore, setAddingStore] = useState(false);
+  const [editingOften, setEditingOften] = useState(false);
   const [storeName, setStoreName] = useState('');
   const [photo, setPhoto] = useState<File | null>(null);
   const [notice, setNotice] = useState('');
@@ -63,6 +64,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
 
   const storeId = pickStore(data.stores, wanted);
   const { toBuy, inCart } = storeId ? forStore(data.items, storeId) : { toBuy: [], inCart: [] };
+  const often = storeId ? suggestionsFor(data, storeId, text, editingOften) : [];
 
   const choose = (id: string) => {
     setWanted(id);
@@ -160,6 +162,48 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
               ＋
             </button>
           </form>
+
+          {(often.length > 0 || editingOften) && (
+            <section aria-label="Often bought">
+              <div class="oh">
+                <span>Often</span>
+                {!text.trim() && (
+                  <button type="button" class="link-btn" onClick={() => setEditingOften(!editingOften)}>
+                    {editingOften ? 'Done' : 'Edit'}
+                  </button>
+                )}
+              </div>
+              <div class={editingOften ? 'chips wrap' : 'chips'}>
+                {often.length === 0 && <span class="muted">Nothing yet: items you add 3 times show up here.</span>}
+                {often.map((f) =>
+                  editingOften ? (
+                    <span class={f.pinned ? 'chip pin' : 'chip'} key={f.name}>
+                      {f.name}
+                      <button
+                        type="button"
+                        class={f.pinned ? 'pinbtn on' : 'pinbtn'}
+                        aria-label={`${f.pinned ? 'Unpin' : 'Pin'} ${f.name}`}
+                        onClick={() => void mutate((d) => withPinned(d, storeId, f.name, !f.pinned), () => api.setFrequent(storeId, f.name, { pinned: !f.pinned }))}
+                      >
+                        📌
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${f.name} from suggestions`}
+                        onClick={() => void mutate((d) => withoutFrequent(d, storeId, f.name), () => api.setFrequent(storeId, f.name, { hidden: true }))}
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  ) : (
+                    <button type="button" class="chip" key={f.name} aria-label={`Add ${f.name}`} onClick={() => add(f.name)}>
+                      {f.name}
+                    </button>
+                  ),
+                )}
+              </div>
+            </section>
+          )}
 
           <section aria-label="To buy">
             <div class="sec">To buy · {toBuy.length}</div>

@@ -202,3 +202,93 @@ def test_seeding_twice_creates_one_set_of_stores(me):
     lists._seed_defaults(get_table(), session)
     lists._seed_defaults(get_table(), session)  # a concurrent first sync: the second one loses the marker race and adds nothing
     assert [s["name"] for s in sync(me)["stores"]] == ["Costco", "Patel", "Butcher"]
+
+
+def freq(me, store: str | None = None) -> list[dict]:
+    rows = sync(me)["frequent"]
+    return [r for r in rows if store is None or r["storeId"] == store]
+
+
+def put_freq(me, store: str, name: str, **changes):
+    return call("PUT", "/frequent", {"storeId": store, "name": name, **changes}, me["token"])
+
+
+def test_an_item_added_three_times_is_suggested_for_that_store(me):
+    costco, patel = store_id(me, "Costco"), store_id(me, "Patel")
+    for _ in range(2):
+        add(me, costco, "Milk")
+    assert freq(me) == []  # twice is not often yet
+    add(me, costco, "milk")  # case does not matter
+    assert [(f["name"], f["count"], f["storeId"]) for f in freq(me)] == [("milk", 3, costco)]
+    assert freq(me, patel) == []  # counts are per store
+
+
+def test_scanned_items_count_too(me):
+    costco = store_id(me, "Costco")
+    for _ in range(3):
+        status, _body = call("POST", "/items/bulk", {"items": [{"name": "Eggs", "note": "", "storeId": costco}]}, me["token"])
+        assert status == 201
+        for item in sync(me)["items"]:
+            call("DELETE", f"/items/{item['id']}", token=me["token"])  # so the next scan is not skipped as a duplicate
+    assert [f["name"] for f in freq(me)] == ["Eggs"]
+
+
+def test_pinning_shows_an_item_at_once_and_hiding_removes_it(me):
+    costco = store_id(me, "Costco")
+    status, body = put_freq(me, costco, "Saffron", pinned=True)
+    assert status == 200 and body["pinned"] is True and body["count"] == 0
+    assert [(f["name"], f["pinned"]) for f in freq(me)] == [("Saffron", True)]
+    assert put_freq(me, costco, "saffron", hidden=True)[1]["pinned"] is False  # hiding un-pins
+    assert freq(me) == []
+    put_freq(me, costco, "Saffron", pinned=True)  # pinning brings it back
+    assert [f["name"] for f in freq(me)] == ["Saffron"]
+
+
+def test_a_hidden_item_stays_hidden_even_as_it_keeps_being_added(me):
+    costco = store_id(me, "Costco")
+    put_freq(me, costco, "Milk", hidden=True)
+    for _ in range(4):
+        add(me, costco, "Milk")
+    assert freq(me) == []
+
+
+def test_pinned_come_first_then_most_added(me):
+    costco = store_id(me, "Costco")
+    for name, times in (("Rice", 3), ("Milk", 5)):
+        for _ in range(times):
+            add(me, costco, name)
+    put_freq(me, costco, "Saffron", pinned=True)
+    assert [f["name"] for f in freq(me)] == ["Saffron", "Milk", "Rice"]
+
+
+def test_deleting_a_store_forgets_its_suggestions(me):
+    costco = store_id(me, "Costco")
+    for _ in range(3):
+        add(me, costco, "Milk")
+    assert call("DELETE", f"/stores/{costco}", token=me["token"])[0] == 204
+    assert freq(me) == []
+    assert call("GET", "/sync", token=me["token"])[1]["stores"]  # the others are untouched
+
+
+def test_frequent_validation(me):
+    costco = store_id(me, "Costco")
+    assert put_freq(me, costco, "", pinned=True)[0] == 400
+    assert put_freq(me, costco, "Milk")[0] == 400  # neither pinned nor hidden
+    assert put_freq(me, costco, "Milk", pinned="yes")[0] == 400
+    assert put_freq(me, "nope", "Milk", pinned=True)[0] == 404
+    assert call("PUT", "/frequent", {"name": "Milk", "pinned": True}, me["token"])[0] == 400  # no store
+    assert call("PUT", "/frequent", {"storeId": costco, "name": "Milk", "pinned": True})[0] == 401  # signed out
+
+
+def test_the_history_is_capped_and_pinned_names_survive(me, table, monkeypatch):
+    from api import lists
+
+    monkeypatch.setattr(lists, "MAX_FREQ", 3)
+    costco = store_id(me, "Costco")
+    put_freq(me, costco, "Saffron", pinned=True)
+    for name in ("A", "B", "C"):
+        add(me, costco, name)
+    sync(me)  # trims on read
+    rows = table.query(KeyConditionExpression="PK = :pk", ExpressionAttributeValues={":pk": f"H#{me['householdId']}"})["Items"]
+    kept = [r["SK"] for r in rows if r["SK"].startswith("FREQ#")]
+    assert len(kept) == 3 and any(sk.endswith("#saffron") for sk in kept)
