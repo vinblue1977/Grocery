@@ -63,7 +63,7 @@ def handler(event: dict[str, Any], _context: object) -> dict[str, Any]:
         try:
             return _response(201, households.create_household(table, households.clean_name(body.get("deviceName"), "Device")))
         except households.HouseholdExists:
-            return _response(409, {"error": "this app already has a household; ask for an invite"})
+            return _response(409, {"error": "this app already has a household: paste an invite link or code instead"})
     if (method, path) == ("POST", "/join"):
         body = _json_body(event)
         code = body.get("code")
