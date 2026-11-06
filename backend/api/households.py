@@ -5,11 +5,13 @@ Items (PK / SK):
   H#<hid> / DEVICE#<did>     a signed-in device: name, creation time, hash of its token
   TOKEN#<sha256> / TOKEN     token lookup: which household and device a bearer token belongs to
   INVITE#<sha256> / INVITE   a single-use invite code with an expiry (`ttl`, also a DynamoDB TTL attribute)
+  H#<hid> / META#RECOVERY    hash of the household's recovery code
 
 Tokens and invite codes are 256-bit random values, so a plain SHA-256 is enough; only the hash is stored.
 """
 
 import hashlib
+import hmac
 import secrets
 import time
 import uuid
@@ -28,6 +30,10 @@ class HouseholdExists(Exception):
 
 class InvalidInvite(Exception):
     """The invite code is unknown, used or expired."""
+
+
+class InvalidRecovery(Exception):
+    """The recovery code is unknown, blank or malformed."""
 
 
 class NotFound(Exception):
@@ -184,3 +190,45 @@ def revoke_device(table: Any, session: Session, device_id: str) -> None:
     # The token item is what grants access, so it goes first.
     table.delete_item(Key={"PK": f"TOKEN#{device['tokenHash']}", "SK": "TOKEN"})
     table.delete_item(Key=key)
+
+
+def _recovery_key(household_id: str) -> dict[str, str]:
+    return {"PK": f"H#{household_id}", "SK": "META#RECOVERY"}
+
+
+def create_recovery(table: Any, session: Session, now: float | None = None) -> dict[str, str]:
+    """Makes a new recovery code, replacing any older one. Only its hash is stored; the code is returned once."""
+    code = "rec_" + secrets.token_urlsafe(20)
+    created = int(now if now is not None else time.time())
+    table.put_item(Item={**_recovery_key(session.household_id), "codeHash": _hash(code), "createdAt": created})
+    return {"code": code}
+
+
+def recover(table: Any, code: object, device_name: str) -> dict[str, str]:
+    """Signs in a new device with the household's recovery code. The code stays valid; a new one replaces it.
+
+    There is no guess limiter on purpose: the code has about 160 bits of entropy, so guessing is infeasible (tokens are
+    protected the same way), and a household-wide lockout would let an anonymous caller lock the owner out of recovery.
+    """
+    household = table.get_item(Key={"PK": "APP", "SK": "HOUSEHOLD"}, ConsistentRead=True).get("Item")
+    household_id = str(household["householdId"]) if household else ""
+    row = table.get_item(Key=_recovery_key(household_id), ConsistentRead=True).get("Item") if household else None
+    text = code if isinstance(code, str) and len(code) <= 200 else ""
+    expected = str(row["codeHash"]) if row else "0" * 64
+    matches = hmac.compare_digest(_hash(text), expected)  # always hashes and compares, so every failure costs the same
+    if not (row and text and matches):
+        raise InvalidRecovery
+    device_ops, creds = _device_ops(table, household_id)
+    # The code may have been replaced since we read it: the write only goes through if the verified hash is still current.
+    still_current = {
+        "ConditionCheck": {
+            "TableName": table.name,
+            "Key": _recovery_key(household_id),
+            "ConditionExpression": "#h = :hash",
+            "ExpressionAttributeNames": {"#h": "codeHash"},
+            "ExpressionAttributeValues": {":hash": expected},
+        }
+    }
+    if not transact(table, [still_current, *_named(device_ops, device_name)]):
+        raise InvalidRecovery
+    return creds
