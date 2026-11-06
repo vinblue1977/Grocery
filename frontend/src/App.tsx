@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { createApi, type Api } from './api';
 import { parseJoinCode } from './invite';
+import { clearSnapshot } from './snapshotCache';
 import { clearSession, loadSession, saveSession, type Session } from './session';
 import { Lists } from './Lists';
 import { Settings } from './Settings';
@@ -14,6 +15,7 @@ export function App() {
   const api = useMemo(() => createApi(API_URL, () => loadSession()?.token ?? null), []);
   const signOut = () => {
     clearSession();
+    clearSnapshot();
     setSession(null);
   };
 
@@ -37,7 +39,7 @@ export function App() {
 
 export function Signed({ api, session, onSignedOut }: { api: Api; session: Session; onSignedOut: () => void }) {
   const [tab, setTab] = useState<'lists' | 'settings'>('lists');
-  const lists = useLists(api, onSignedOut);
+  const lists = useLists(api, onSignedOut, session.householdId);
 
   // Settings gets a history entry, so the iOS edge-swipe and the Android back button return to the list instead of leaving.
   useEffect(() => {
