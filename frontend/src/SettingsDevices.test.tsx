@@ -184,7 +184,6 @@ describe('avatar color', () => {
     await flush();
     expect(api.setColor).toHaveBeenCalledWith('#ff9f6b');
     expect(refresh).toHaveBeenCalled();
-    expect(swatches(root).filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.getAttribute('aria-label'))).toEqual(['Orange']);
   });
 
   it('goes back to the saved color and says so when saving fails, and signs out if removed', async () => {
@@ -198,5 +197,22 @@ describe('avatar color', () => {
     await click(swatches(root).find((b) => b.getAttribute('aria-label') === 'Orange'));
     await flush();
     expect(onSignedOut).toHaveBeenCalled();
+  });
+
+  it('takes one pick at a time, and drops the local pick once the synced colors agree', async () => {
+    let finish: () => void = () => undefined;
+    api.setColor = vi.fn().mockImplementation(() => new Promise((resolve) => (finish = () => resolve({ color: '#ff9f6b' }))));
+    const root = await mount();
+    await click(swatches(root).find((b) => b.getAttribute('aria-label') === 'Orange'));
+    expect(swatches(root).every((b) => b.disabled)).toBe(true); // a second tap cannot race the first
+    expect(swatches(root).filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.getAttribute('aria-label'))).toEqual(['Orange']); // shown at once
+    await act(async () => {
+      finish();
+      await Promise.resolve();
+    });
+    await flush();
+    expect(swatches(root).some((b) => b.disabled)).toBe(false);
+    // the refreshed lists still say Green (the mock does not change them), so the screen follows the household, not the old tap
+    expect(swatches(root).filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.getAttribute('aria-label'))).toEqual(['Green']);
   });
 });

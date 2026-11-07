@@ -31,9 +31,10 @@ export const AVATAR_COLORS = [
 /** `chosen` is what the household saved (first word, lowercased, to colour); without a choice the colour is automatic. */
 export function avatarColor(name: string, chosen: Record<string, string> = {}): string {
   const key = firstWord(name).toLowerCase();
-  const picked = chosen[key];
+  // Own properties only: a person called "constructor" must not get a built-in function as a colour.
+  const picked = Object.hasOwn(chosen, key) ? chosen[key] : undefined;
   if (picked) return picked;
-  const known = KNOWN[key];
+  const known = Object.hasOwn(KNOWN, key) ? KNOWN[key] : undefined;
   if (known) return known;
   let hash = 0;
   for (const ch of key) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;

@@ -25,6 +25,7 @@ export function Settings({ api, lists, session, onSignedOut, onRenamed, onPerson
   const [renamingDevice, setRenamingDevice] = useState<string | null>(null);
   const [editingPerson, setEditingPerson] = useState<string | null>(null);
   const [pickedColor, setPickedColor] = useState<string | null>(null);
+  const [savingColor, setSavingColor] = useState(false);
   const renameInput = useRef<HTMLInputElement>(null);
   const personInput = useRef<HTMLInputElement>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -115,15 +116,24 @@ export function Settings({ api, lists, session, onSignedOut, onRenamed, onPerson
   };
 
   const chooseColor = async (color: string) => {
+    if (savingColor) return;
+    setSavingColor(true); // one save at a time, so a slow first answer cannot undo a later pick
     setPickedColor(color); // shows at once; the lists pick it up from the next sync
     try {
       await api.setColor(color);
-      setNote('');
-      await lists.refresh();
     } catch (err) {
       setPickedColor(null);
+      setSavingColor(false);
       if (err instanceof ApiError && err.status === 401) onSignedOut();
       else setNote('Could not save that color');
+      return;
+    }
+    setSavingColor(false);
+    try {
+      await lists.refresh();
+      setPickedColor(null); // the synced colors now say the same thing
+    } catch {
+      // Saved, just not refreshed yet: the pick stays on screen and the next poll catches up.
     }
   };
 
@@ -132,6 +142,7 @@ export function Settings({ api, lists, session, onSignedOut, onRenamed, onPerson
     try {
       const done = await api.setPerson(name);
       setEditingPerson(null); // only close on success, so a failed save keeps what was typed
+      setPickedColor(null); // a new name has its own color
       setNote('');
       onPersonChanged(done.person);
       await refresh();
@@ -214,6 +225,7 @@ export function Settings({ api, lists, session, onSignedOut, onRenamed, onPerson
               key={c.value}
               aria-label={c.name}
               aria-pressed={c.value === myColor}
+              disabled={savingColor}
               style={{ background: c.value }}
               onClick={() => void chooseColor(c.value)}
             />

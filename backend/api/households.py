@@ -3,6 +3,7 @@
 Items (PK / SK):
   APP / HOUSEHOLD            the one household this deployment allows (a guard against strangers creating more)
   H#<hid> / DEVICE#<did>     a signed-in device: name, creation time, hash of its token
+  H#<hid> / PERSON#<first name, lowercase>   the avatar colour a person picked (sent to every device with the list)
   TOKEN#<sha256> / TOKEN     token lookup: which household and device a bearer token belongs to
   INVITE#<sha256> / INVITE   a single-use invite code with an expiry (`ttl`, also a DynamoDB TTL attribute)
   H#<hid> / META#RECOVERY    hash of the household's recovery code

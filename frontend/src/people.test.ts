@@ -31,6 +31,11 @@ describe('people', () => {
     expect(AVATAR_COLORS).toHaveLength(8);
     expect(AVATAR_COLORS.map((c) => c.value)).toContain(avatarColor('Maya')); // an automatic colour is always one of the choices
   });
+  it('treats names like "constructor" as ordinary names, not object properties', () => {
+    for (const name of ['constructor', 'toString', '__proto__', 'valueOf']) {
+      expect(avatarColor(name, {})).toMatch(/^#[0-9a-f]{6}$/);
+    }
+  });
   it('greets by time of day', () => {
     expect(greeting(8, "Victor's phone")).toEqual({ text: 'Good morning, Victor', emoji: '☀️' });
     expect(greeting(13, 'Yara').text).toBe('Good afternoon, Yara');
