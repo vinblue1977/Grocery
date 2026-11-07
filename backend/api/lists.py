@@ -363,6 +363,15 @@ def update_item(table: Any, session: Session, item_id: str, changes: dict[str, A
         fields["name"] = clean_text(changes["name"], MAX_NAME, required=True)
     if "note" in changes:
         fields["note"] = clean_text(changes["note"], MAX_NOTE)
+    if "storeId" in changes:
+        store_id = changes["storeId"]
+        if not isinstance(store_id, str):
+            raise Invalid("storeId is not one of your stores")
+        try:
+            _get(table, session, f"STORE#{store_id}")
+        except NotFound:
+            raise Invalid("storeId is not one of your stores") from None
+        fields["storeId"] = store_id
     fields["updatedAt"] = _now()
     return _item_view(_update(table, session, f"ITEM#{item_id}", fields))
 

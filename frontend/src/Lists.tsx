@@ -245,7 +245,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
     clearedTimer.current = setTimeout(() => setCleared(null), CLEARED_MS);
     trashItems(
       ids,
-      `Cleared ${n} item${n === 1 ? '' : 's'}`,
+      `${n} item${n === 1 ? '' : 's'} bought`,
       () => {
         // Only what was in the cart when Clear was tapped goes; an item ticked since then stays.
         const ticked = (dataRef.current?.items ?? []).filter((i) => i.storeId === storeId && i.checked);
@@ -469,7 +469,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
               <div class="sec">
                 <span>In cart · {inCart.length}</span>
                 <button type="button" class="link-btn" onClick={clearCart}>
-                  Clear
+                  Done shopping
                 </button>
               </div>
               {inCart.map((item) => (
@@ -508,10 +508,13 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
         <EditSheet
           key={editingItem.id}
           item={editingItem}
+          stores={data.stores}
           onClose={() => setEditingId(null)}
-          onSave={(changes: ItemChanges) =>
-            void mutate((d) => withEditedItem(d, editingItem.id, changes), { kind: 'updateItem', id: editingItem.id, changes })
-          }
+          onSave={(changes: ItemChanges) => {
+            void mutate((d) => withEditedItem(d, editingItem.id, changes), { kind: 'updateItem', id: editingItem.id, changes });
+            const target = changes.storeId ? data.stores.find((s) => s.id === changes.storeId) : undefined;
+            if (target) say(`${changes.name ?? editingItem.name} moved to ${target.name}`, target.id); // View jumps to that store
+          }}
         />
       )}
       {photo && (

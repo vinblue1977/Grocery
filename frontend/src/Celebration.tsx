@@ -51,7 +51,7 @@ export function Celebration({ store, next, onNext, onClear, onDismiss }: Props) 
           </button>
         )}
         <button type="button" class="quiet" onClick={onClear}>
-          Clear cart
+          Done shopping
         </button>
       </div>
     </section>

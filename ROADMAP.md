@@ -21,13 +21,13 @@ Ideas for the Grocery app, roughly in the order to do them. Everything stays on 
 - People, not devices: each device has a name and a person; a phone that joins or recovers asks "Who are you?"; items show the person; "You" card in Settings to change your name
 - Update banner: "New version ready · Reload" when a new version has downloaded, instead of waiting for the second launch
 - Swipe an item left to delete it, and Undo for a deleted item or a cleared cart (the delete is sent after six seconds, or when the app goes to the background)
+- "Done shopping" (the old Clear, still undoable), and moving an item to another store from the edit sheet
 - Checked on a real iPhone: offline edit and replay, and the paper-list scan on a handwritten list
 
 ## Next
 
 - **QR code for invites** so Yara can scan instead of pasting a link. The invite card shows the code as a QR next to Copy link; the code is drawn on the phone, nothing new is sent anywhere. (Mockup first.)
 - **Quantity and note editing** on an item (the data supports it; only the screen is missing), and tap-to-rename.
-- **Move an item to another store**, and a "Done shopping" action that clears the cart.
 
 ## Soon
 

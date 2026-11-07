@@ -428,3 +428,20 @@ def test_a_store_add_that_loses_the_race_returns_the_winner(me, table):
     table.get_item = first_lookup_misses  # type: ignore[method-assign]
     store, created = lists.add_store(table, session, "Aldi", "5" * 12)
     assert created is False and store["id"] == "5" * 12
+
+
+def test_an_item_can_move_to_another_store_and_keeps_everything_else(me):
+    costco, patel = store_id(me, "Costco"), store_id(me, "Patel")
+    item = add(me, costco, "Dal", note="1 kg")
+    status, moved = call("PATCH", f"/items/{item['id']}", {"storeId": patel}, me["token"])
+    assert status == 200
+    assert (moved["storeId"], moved["name"], moved["note"], moved["addedBy"]) == (patel, "Dal", "1 kg", "Victor")
+    assert [(i["name"], i["storeId"]) for i in sync(me)["items"]] == [("Dal", patel)]
+
+
+def test_moving_to_a_store_that_does_not_exist_is_refused(me):
+    costco = store_id(me, "Costco")
+    item = add(me, costco, "Dal")
+    for bad in ("nope", None, 7, ["x"]):
+        assert call("PATCH", f"/items/{item['id']}", {"storeId": bad}, me["token"])[0] == 400
+    assert sync(me)["items"][0]["storeId"] == costco

@@ -399,7 +399,7 @@ describe('Lists screen', () => {
 
     it('only clears what was in the cart when Clear was tapped, not an item ticked during the wait', async () => {
       const root = await open();
-      await click(button(root, 'Clear'));
+      await click(button(root, 'Done shopping'));
       await click(root.querySelector('[aria-label="Check off Milk"]'));
       await tick(6100);
       expect(api.clearChecked).not.toHaveBeenCalled();
@@ -419,18 +419,31 @@ describe('Lists screen', () => {
 
     it('clears the cart after six seconds unless Undo is tapped', async () => {
       const root = await open();
-      await click(button(root, 'Clear'));
-      expect(text(root)).toContain('Cleared 1 item');
+      await click(button(root, 'Done shopping'));
+      expect(text(root)).toContain('1 item bought');
       expect(text(root)).not.toContain('Eggs');
       expect(api.clearChecked).not.toHaveBeenCalled();
       await click(button(root, 'Undo'));
       expect(text(root)).toContain('Eggs');
       await tick(7000);
       expect(api.clearChecked).not.toHaveBeenCalled();
-      await click(button(root, 'Clear'));
+      await click(button(root, 'Done shopping'));
       await tick(6100);
       expect(api.clearChecked).toHaveBeenCalledWith('c');
     });
+  });
+
+  it('moves an item to another store from the edit sheet, and the toast jumps there', async () => {
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await flush();
+    await click(root.querySelector('[aria-label="Edit Milk"]'));
+    await click(Array.from(root.querySelectorAll('.sheet .chip')).find((b) => b.textContent === 'Patel') ?? null);
+    await click(root.querySelector('.sheet button[type=submit]'));
+    expect(api.updateItem).toHaveBeenCalledWith('milk', { storeId: 'p' });
+    expect(root.textContent).not.toContain('2 gal'); // gone from Costco
+    expect(root.querySelector('.toast')?.textContent).toContain('Milk moved to Patel');
+    await click(Array.from(root.querySelectorAll('.toast button')).find((b) => b.textContent === 'View') ?? null);
+    expect(root.textContent).toContain('2 gal'); // now on Patel's list
   });
 
   it('opens settings from the header icon, even while loading', async () => {
@@ -726,7 +739,7 @@ describe('useLists', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
       });
-      await click(Array.from(root.querySelectorAll('button')).find((b) => b.textContent === 'Clear') ?? null);
+      await click(Array.from(root.querySelectorAll('button')).find((b) => b.textContent === 'Done shopping') ?? null);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
       });
@@ -835,11 +848,11 @@ describe('useLists', () => {
       expect(root.querySelector('.toast')?.textContent).not.toContain(' to ');
     });
 
-    it('says Cleared N items and shows the cheerful empty store after Clear', async () => {
+    it('says N items bought and shows the cheerful empty store after Clear', async () => {
       const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
       await flush();
-      await click(Array.from(root.querySelectorAll('button')).find((b) => b.textContent === 'Clear') ?? null);
-      expect(root.querySelector('.toast')?.textContent).toContain('Cleared 1 item');
+      await click(Array.from(root.querySelectorAll('button')).find((b) => b.textContent === 'Done shopping') ?? null);
+      expect(root.querySelector('.toast')?.textContent).toContain('1 item bought');
     });
   });
 

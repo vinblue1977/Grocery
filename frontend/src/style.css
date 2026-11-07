@@ -102,6 +102,7 @@ svg.qr { display: block; width: min(240px, 100%); margin: 12px auto; border-radi
 .chips.wrap { flex-wrap: wrap; overflow: visible; }
 .chip { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 16px; border: 0; background: var(--accl); color: var(--acc); font: inherit; font-size: 14px; white-space: nowrap; }
 .chip.pin { outline: 1px solid var(--acc); }
+.chip.on { background: var(--acc); color: var(--bg); font-weight: 600; }
 .chip button { background: none; border: 0; padding: 6px 5px; margin: -6px -2px; color: var(--mut); font: inherit; font-size: 12px; }
 .chip .pinbtn { opacity: 0.35; }
 .chip .pinbtn.on { opacity: 1; }
