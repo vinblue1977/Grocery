@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { ApiError, type Api, type Device } from './api';
 import { buildInviteLink } from './invite';
 import { withoutStore, withRenamedStore } from './listState';
+import { QrCode } from './QrCode';
 import type { Session } from './session';
 import type { ListsState } from './useLists';
 import { applyTheme, loadPref, savePref, type ThemePref } from './theme';
@@ -184,12 +185,15 @@ export function Settings({ api, lists, session, onSignedOut, onRenamed, onBack }
         <summary>
           <strong>Invite your partner</strong>
         </summary>
-        <p class="muted">One-time link, valid for 24 hours. They open it on their iPhone and stay signed in.</p>
+        <p class="muted">
+          One-time link, valid for 24 hours. They scan the code in the app's first screen, or open the link on their iPhone.
+        </p>
         <button class="primary" type="button" onClick={() => void invite()}>
           Create invite link
         </button>
         {link && (
           <>
+            <QrCode text={link} label="QR code for the invite link" />
             <p class="link">{link}</p>
             <button type="button" onClick={() => void copy()}>
               Copy link

@@ -70,3 +70,23 @@ describe('recovery code card', () => {
     expect(again.root.textContent).toContain('the old code might no longer work');
   });
 });
+
+describe('invite card', () => {
+  it('shows a scannable QR code with the invite link once it is created', async () => {
+    const invite = vi.fn().mockResolvedValue({ code: 'Xk3F9xQ2mZ7vB1nTa8LcW5yRd0HeJ4uG', expiresAt: 1 });
+    const api = { devices: vi.fn().mockResolvedValue([]), invite } as unknown as Api;
+    const root = document.createElement('div');
+    document.body.append(root);
+    act(() => {
+      render(<Settings api={api} lists={{ data: null } as unknown as ListsState} session={session} onSignedOut={vi.fn()} onRenamed={vi.fn()} onBack={vi.fn()} />, root);
+    });
+    await flush();
+    expect(root.querySelector('svg.qr')).toBeNull();
+    const create = [...root.querySelectorAll('button')].find((b) => b.textContent?.includes('Create invite link')) as HTMLButtonElement;
+    await act(() => create.click());
+    await flush();
+    expect(invite).toHaveBeenCalledTimes(1);
+    expect(root.querySelector('svg.qr')?.getAttribute('aria-label')).toBe('QR code for the invite link');
+    expect(root.querySelector('.link')?.textContent).toContain('#join=Xk3F9xQ2mZ7vB1nTa8LcW5yRd0HeJ4uG');
+  });
+});

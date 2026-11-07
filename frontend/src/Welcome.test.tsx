@@ -4,6 +4,20 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type Api } from './api';
 import { Welcome } from './Welcome';
 
+// The real scanner needs a camera; this stands in for it with a button per outcome.
+vi.mock('./ScanQr', async () => {
+  const { h } = await import('preact');
+  return {
+    ScanQr: ({ onCode, onCancel }: { onCode: (code: string) => void; onCancel: () => void }) =>
+      h(
+        'div',
+        { class: 'scanner' },
+        h('button', { id: 'found', onClick: () => onCode('Xk3F9xQ2mZ7vB1nTa8LcW5yRd0HeJ4uG') }, 'found'),
+        h('button', { id: 'back', onClick: onCancel }, 'back'),
+      ),
+  };
+});
+
 const creds = { householdId: 'h', deviceId: 'd', token: 't' };
 
 // jsdom has no matchMedia, which the theme code uses.
@@ -134,5 +148,46 @@ describe('Welcome', () => {
     await submit(root);
     expect(root.querySelector('.error')?.textContent).toContain("isn't valid");
     expect(onSignedIn).not.toHaveBeenCalled();
+  });
+});
+
+describe('scanning a QR invite', () => {
+  const scanButton = (root: HTMLElement) =>
+    [...root.querySelectorAll('button')].find((b) => b.textContent?.includes('Scan a QR code')) as HTMLButtonElement | undefined;
+  const click = (el: Element | null) => act(() => (el as HTMLElement).click());
+
+  it('fills the invite box from a scanned code, then Join signs in with it', async () => {
+    const { api, root, onSignedIn } = setup();
+    await type(root, 0, 'Yara');
+    await click(scanButton(root) ?? null);
+    expect(root.querySelector('.scanner')).not.toBeNull();
+    await click(root.querySelector('#found'));
+    expect(root.querySelector('.scanner')).toBeNull();
+    expect((root.querySelectorAll('input')[1] as HTMLInputElement).value).toBe('Xk3F9xQ2mZ7vB1nTa8LcW5yRd0HeJ4uG');
+    expect(root.textContent).toContain('Invite found. Tap Join.');
+    expect(root.querySelector('button.primary')?.textContent).toBe('Join');
+    await submit(root);
+    expect(api.join).toHaveBeenCalledWith('Xk3F9xQ2mZ7vB1nTa8LcW5yRd0HeJ4uG', 'Yara');
+    expect(api.createHousehold).not.toHaveBeenCalled();
+    expect(onSignedIn).toHaveBeenCalled();
+  });
+
+  it('goes back to the form without filling anything', async () => {
+    const { root } = setup();
+    await click(scanButton(root) ?? null);
+    await click(root.querySelector('#back'));
+    expect(root.querySelector('.scanner')).toBeNull();
+    expect((root.querySelectorAll('input')[1] as HTMLInputElement).value).toBe('');
+  });
+
+  it('is not offered when already invited by a link, or in recovery mode', async () => {
+    const invited = setup('abcdefgh12345678');
+    expect(scanButton(invited.root)).toBeUndefined();
+    const { root } = setup();
+    expect(scanButton(root)).toBeDefined();
+    await act(() => {
+      (root.querySelector('.link-btn') as HTMLElement).click();
+    });
+    expect(scanButton(root)).toBeUndefined();
   });
 });
