@@ -247,7 +247,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
       ids,
       `${n} item${n === 1 ? '' : 's'} bought`,
       () => {
-        // Only what was in the cart when Clear was tapped goes; an item ticked since then stays.
+        // Only what was in the cart when Done shopping was tapped goes; an item ticked since then stays (nothing is kept as a purchase history: bought items are deleted).
         const ticked = (dataRef.current?.items ?? []).filter((i) => i.storeId === storeId && i.checked);
         if (ticked.every((i) => ids.includes(i.id))) {
           void mutate((d) => withoutChecked(d, storeId), { kind: 'clearChecked', storeId });
@@ -513,7 +513,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
           onSave={(changes: ItemChanges) => {
             void mutate((d) => withEditedItem(d, editingItem.id, changes), { kind: 'updateItem', id: editingItem.id, changes });
             const target = changes.storeId ? data.stores.find((s) => s.id === changes.storeId) : undefined;
-            if (target) say(`${changes.name ?? editingItem.name} moved to ${target.name}`, target.id); // View jumps to that store
+            if (target) say(`${changes.name ?? editingItem.name} moved to ${target.name}`, target.id); // the toast has a View button for that store; the item itself leaves this list
           }}
         />
       )}
