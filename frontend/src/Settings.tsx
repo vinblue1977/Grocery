@@ -15,13 +15,16 @@ interface Props {
   session: Session;
   onSignedOut: () => void;
   onRenamed: (name: string) => void;
+  onPersonChanged: (person: string) => void;
   onBack: () => void;
 }
 
-export function Settings({ api, lists, session, onSignedOut, onRenamed, onBack }: Props) {
+export function Settings({ api, lists, session, onSignedOut, onRenamed, onPersonChanged, onBack }: Props) {
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const [renamingDevice, setRenamingDevice] = useState<string | null>(null);
+  const [editingPerson, setEditingPerson] = useState<string | null>(null);
   const renameInput = useRef<HTMLInputElement>(null);
+  const personInput = useRef<HTMLInputElement>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [pref, setPref] = useState<ThemePref>(loadPref);
   const [devices, setDevices] = useState<Device[]>([]);
@@ -39,6 +42,10 @@ export function Settings({ api, lists, session, onSignedOut, onRenamed, onBack }
   useEffect(() => {
     if (renamingDevice !== null) renameInput.current?.focus(); // once, when the form opens; not on every keystroke
   }, [renamingDevice === null]);
+
+  useEffect(() => {
+    if (editingPerson !== null) personInput.current?.focus();
+  }, [editingPerson === null]);
 
   useEffect(() => {
     void refresh();
@@ -103,6 +110,20 @@ export function Settings({ api, lists, session, onSignedOut, onRenamed, onBack }
     }
   };
 
+  const changePerson = async (name: string) => {
+    if (!name) return;
+    try {
+      const done = await api.setPerson(name);
+      setEditingPerson(null); // only close on success, so a failed save keeps what was typed
+      setNote('');
+      onPersonChanged(done.person);
+      await refresh();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) onSignedOut();
+      else setNote('Could not change your name');
+    }
+  };
+
   const renameDevice = async (name: string) => {
     if (!name) return;
     try {
@@ -125,7 +146,45 @@ export function Settings({ api, lists, session, onSignedOut, onRenamed, onBack }
         </button>
         <h1>Settings</h1>
       </header>
-      <p class="muted">Signed in as {session.deviceName}</p>
+      <p class="muted">Signed in as {session.person}</p>
+
+      <section class="card">
+        <strong>You</strong>
+        {editingPerson !== null ? (
+          <form
+            class="add"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void changePerson(editingPerson.trim());
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && !e.isComposing) setEditingPerson(null);
+            }}
+          >
+            <input
+              ref={personInput}
+              value={editingPerson}
+              maxLength={40}
+              aria-label="Your name"
+              onInput={(e) => setEditingPerson(e.currentTarget.value)}
+            />
+            <button type="button" onClick={() => setEditingPerson(null)}>
+              Cancel
+            </button>
+            <button type="submit" disabled={!editingPerson.trim()}>
+              Save
+            </button>
+          </form>
+        ) : (
+          <div class="row">
+            <span>{session.person}</span>
+            <button type="button" onClick={() => setEditingPerson(session.person)}>
+              Change name
+            </button>
+          </div>
+        )}
+        <div class="muted">Shown on the items you add. Old items keep the name they had.</div>
+      </section>
 
       <section class="card">
         <strong>Appearance</strong>
@@ -252,6 +311,8 @@ export function Settings({ api, lists, session, onSignedOut, onRenamed, onBack }
                 <span>
                   {device.name}
                   {device.current && <span class="muted"> (this device)</span>}
+                  <br />
+                  <span class="muted">{device.person || 'Not chosen yet'}</span>
                 </span>
                 <span>
                   {device.current && (

@@ -27,7 +27,7 @@ const snapshot = (): Snapshot => ({
   ],
 });
 
-const session = { token: 't', householdId: 'h', deviceId: 'd', deviceName: 'Victor' };
+const session = { token: 't', householdId: 'h', deviceId: 'd', deviceName: 'iPhone', person: 'Victor' };
 const flush = () =>
   act(async () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 0));

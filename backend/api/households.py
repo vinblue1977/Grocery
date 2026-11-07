@@ -94,6 +94,7 @@ def _device_ops(table: Any, household_id: str) -> tuple[list[dict[str, Any]], di
                 "SK": f"DEVICE#{device_id}",
                 "deviceId": device_id,
                 "name": "",
+                "person": "",  # who uses this device; empty until they pick (devices made before this have no attribute)
                 "tokenHash": _hash(token),
                 "createdAt": time.time_ns() // 1_000_000,  # milliseconds, so devices created together keep their order
             },
@@ -103,12 +104,18 @@ def _device_ops(table: Any, household_id: str) -> tuple[list[dict[str, Any]], di
     return ops, {"householdId": household_id, "deviceId": device_id, "token": token}
 
 
-def _named(ops: list[dict[str, Any]], name: str) -> list[dict[str, Any]]:
+def _named(ops: list[dict[str, Any]], name: str, person: str = "") -> list[dict[str, Any]]:
     ops[0]["Put"]["Item"]["name"] = name
+    ops[0]["Put"]["Item"]["person"] = person
     return ops
 
 
-def create_household(table: Any, device_name: str) -> dict[str, str]:
+def person_of(device: dict[str, Any]) -> str:
+    """The person a device belongs to. Devices made before people existed used their name for that, so they still do."""
+    return str(device["person"]) if "person" in device else str(device["name"])
+
+
+def create_household(table: Any, device_name: str, person: str = "") -> dict[str, str]:
     """Claims the single household and signs in its first device in one transaction."""
     household_id = uuid.uuid4().hex
     device_ops, creds = _device_ops(table, household_id)
@@ -117,7 +124,7 @@ def create_household(table: Any, device_name: str) -> dict[str, str]:
         {"PK": "APP", "SK": "HOUSEHOLD", "householdId": household_id, "createdAt": int(time.time())},
         condition="attribute_not_exists(PK)",
     )
-    if not transact(table, [claim, *_named(device_ops, device_name)]):
+    if not transact(table, [claim, *_named(device_ops, device_name, person)]):
         raise HouseholdExists
     return creds
 
@@ -176,6 +183,7 @@ def list_devices(table: Any, session: Session) -> list[dict[str, Any]]:
         {
             "deviceId": i["deviceId"],
             "name": i["name"],
+            "person": person_of(i),
             "createdAt": int(i["createdAt"]),
             "current": i["deviceId"] == session.device_id,
         }
@@ -258,3 +266,31 @@ def rename_device(table: Any, session: Session, device_id: str, name: object) ->
             raise NotFound from err
         raise
     return {"deviceId": device_id, "name": clean}
+
+
+def list_people(table: Any, session: Session) -> list[str]:
+    """The distinct people on the household's devices, in the order they first appeared."""
+    people: list[str] = []
+    for device in list_devices(table, session):
+        if device["person"] and device["person"] not in people:
+            people.append(device["person"])
+    return people
+
+
+def set_person(table: Any, session: Session, name: object) -> dict[str, str]:
+    """A device says who uses it. The condition stops the update from recreating a device removed meanwhile."""
+    clean = clean_name(name, "")
+    if not clean:
+        raise InvalidName
+    try:
+        table.update_item(
+            Key={"PK": f"H#{session.household_id}", "SK": f"DEVICE#{session.device_id}"},
+            UpdateExpression="SET person = :p",
+            ConditionExpression="attribute_exists(PK)",
+            ExpressionAttributeValues={":p": clean},
+        )
+    except ClientError as err:
+        if err.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            raise NotFound from err
+        raise
+    return {"person": clean}

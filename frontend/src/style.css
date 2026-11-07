@@ -105,6 +105,8 @@ svg.qr { display: block; width: min(240px, 100%); margin: 12px auto; border-radi
 .top h1 { line-height: 1.1; }
 .it .em { flex: none; width: 34px; height: 34px; border-radius: 10px; background: var(--accl); display: grid; place-items: center; font-size: 19px; }
 .it.done .em { filter: grayscale(0.6); }
+.people { display: flex; flex-direction: column; gap: 8px; }
+.card .people button { display: flex; align-items: center; gap: 10px; text-align: left; }
 .av { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #1d2a22; }
 .it.done .av { opacity: 0.7; }
 .new { margin-left: 6px; padding: 1px 6px; border-radius: 8px; background: var(--accl); color: var(--acc); font-size: 9px; letter-spacing: 0.5px; text-transform: uppercase; vertical-align: middle; }

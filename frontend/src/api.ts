@@ -12,6 +12,7 @@ export class ApiError extends Error {
 export interface Device {
   deviceId: string;
   name: string;
+  person: string;
   createdAt: number;
   current: boolean;
 }
@@ -66,9 +67,11 @@ interface Credentials {
 }
 
 export interface Api {
-  createHousehold(deviceName: string): Promise<Credentials>;
+  createHousehold(deviceName: string, person: string): Promise<Credentials>;
   join(code: string, deviceName: string): Promise<Credentials>;
-  me(): Promise<{ householdId: string; deviceId: string; deviceName: string }>;
+  me(): Promise<{ householdId: string; deviceId: string; deviceName: string; person: string }>;
+  people(): Promise<string[]>;
+  setPerson(name: string): Promise<{ person: string }>;
   invite(): Promise<{ code: string; expiresAt: number }>;
   createRecovery(): Promise<{ code: string }>;
   recover(code: string, deviceName: string): Promise<Credentials>;
@@ -130,9 +133,11 @@ export function createApi(baseUrl: string, getToken: () => string | null, fetchI
   }
 
   return {
-    createHousehold: (deviceName) => request('POST', '/household', { deviceName }),
+    createHousehold: (deviceName, person) => request('POST', '/household', { deviceName, person }),
     join: (code, deviceName) => request('POST', '/join', { code, deviceName }),
     me: () => request('GET', '/me'),
+    people: async () => (await request<{ people: string[] }>('GET', '/people')).people,
+    setPerson: (name) => request('PUT', '/me/person', { name }),
     invite: () => request('POST', '/invites'),
     createRecovery: () => request('POST', '/recovery'),
     recover: (code, deviceName) => request('POST', '/recover', { code, deviceName }),
@@ -158,6 +163,6 @@ export function createApi(baseUrl: string, getToken: () => string | null, fetchI
   };
 }
 
-export function toSession(creds: Credentials, deviceName: string): Session {
-  return { ...creds, deviceName };
+export function toSession(creds: Credentials, deviceName: string, person = ''): Session {
+  return { ...creds, deviceName, person };
 }

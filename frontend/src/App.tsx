@@ -8,6 +8,7 @@ import { Lists } from './Lists';
 import { Settings } from './Settings';
 import { useLists } from './useLists';
 import { Welcome } from './Welcome';
+import { WhoAreYou } from './WhoAreYou';
 
 const API_URL = (import.meta.env['VITE_API_URL'] as string | undefined) ?? '';
 
@@ -36,13 +37,24 @@ export function App() {
     );
   }
 
-  const renamed = (deviceName: string) => {
-    const next = { ...session, deviceName };
+  const update = (changes: Partial<Session>) => {
+    const next = { ...session, ...changes };
     saveSession(next);
     setSession(next); // new items carry the new name straight away
   };
 
-  return <Signed api={api} session={session} onSignedOut={signOut} onRenamed={renamed} />;
+  // A device that signed in with an invite or recovery code says who it is before it can add anything.
+  if (session.person === '') return <WhoAreYou api={api} onPicked={(person) => update({ person })} onSignedOut={signOut} />;
+
+  return (
+    <Signed
+      api={api}
+      session={session}
+      onSignedOut={signOut}
+      onRenamed={(deviceName) => update({ deviceName })}
+      onPersonChanged={(person) => update({ person })}
+    />
+  );
 }
 
 export function Signed({
@@ -50,11 +62,13 @@ export function Signed({
   session,
   onSignedOut,
   onRenamed = () => undefined,
+  onPersonChanged = () => undefined,
 }: {
   api: Api;
   session: Session;
   onSignedOut: () => void;
   onRenamed?: (name: string) => void;
+  onPersonChanged?: (person: string) => void;
 }) {
   const [tab, setTab] = useState<'lists' | 'settings'>('lists');
   const lists = useLists(api, onSignedOut, session.householdId);
@@ -77,7 +91,7 @@ export function Signed({
         <Lists api={api} lists={lists} session={session} onOpenSettings={openSettings} />
       </div>
       {tab === 'settings' && (
-        <Settings api={api} lists={lists} session={session} onSignedOut={onSignedOut} onRenamed={onRenamed} onBack={() => history.back()} />
+        <Settings api={api} lists={lists} session={session} onSignedOut={onSignedOut} onRenamed={onRenamed} onPersonChanged={onPersonChanged} onBack={() => history.back()} />
       )}
     </>
   );

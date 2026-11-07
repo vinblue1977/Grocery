@@ -1,5 +1,5 @@
 import pytest
-from test_api import call, create
+from test_api import call, create, join_as
 
 
 @pytest.fixture
@@ -116,8 +116,7 @@ def test_clear_checked_only_removes_ticked_items_in_that_store(me):
 
 
 def test_both_people_see_the_same_list_and_who_added_what(me):
-    invite = call("POST", "/invites", token=me["token"])[1]
-    yara = call("POST", "/join", {"code": invite["code"], "deviceName": "Yara"})[1]
+    yara = join_as(me, "Yara")
     add(me, store_id(me, "Costco"), "Milk")
     add(yara, store_id(yara, "Costco"), "Bananas")
     seen = sync(yara)["items"]
