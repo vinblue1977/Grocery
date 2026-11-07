@@ -18,6 +18,7 @@ from constructs import Construct
 GITHUB = "token.actions.githubusercontent.com"
 PAGES_ORIGIN = "https://vinblue1977.github.io"  # GitHub Pages serves the PWA from here
 DEFAULT_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"  # reads photos of paper lists; a US inference profile
+MAX_CONCURRENT_REQUESTS = 10  # reserved Lambda concurrency: a cap on the public URL, not a cost (the account allows 1000)
 FREE_TIER_CAPACITY = 5  # RCU and WCU; the always-free allowance is 25 of each
 
 
@@ -66,6 +67,9 @@ class GroceryStack(Stack):
             code=lambda_.Code.from_asset("backend", exclude=["**/__pycache__", "**/*.pyc"]),
             memory_size=256,  # the photo arrives base64-encoded; a little headroom
             timeout=Duration.seconds(30),  # a scan waits on Claude
+            # The URL is public: this caps how many requests run at once (the rest get a 429), so a flood can't run up
+            # DynamoDB or Bedrock use. Free, and far above what two phones need.
+            reserved_concurrent_executions=MAX_CONCURRENT_REQUESTS,
             environment={"TABLE_NAME": self.table.table_name, "BEDROCK_MODEL_ID": model},
             log_group=log_group,
         )

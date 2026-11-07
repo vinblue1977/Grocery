@@ -4,7 +4,7 @@ import aws_cdk as cdk
 import pytest
 from aws_cdk.assertions import Match, Template
 
-from infra.stack import FREE_TIER_CAPACITY, GroceryStack
+from infra.stack import FREE_TIER_CAPACITY, MAX_CONCURRENT_REQUESTS, GroceryStack
 
 
 def _template(**context: str) -> Template:
@@ -31,6 +31,12 @@ def test_api_is_a_function_url_not_api_gateway():
         "AWS::Lambda::Url", {"AuthType": "NONE", "Cors": {"AllowOrigins": ["https://vinblue1977.github.io"]}}
     )
     t.has_resource_properties("AWS::Lambda::Function", {"Architectures": ["arm64"], "Runtime": "python3.14"})
+
+
+def test_the_public_url_has_a_concurrency_cap():
+    t = _template()
+    t.has_resource_properties("AWS::Lambda::Function", {"ReservedConcurrentExecutions": MAX_CONCURRENT_REQUESTS})
+    assert 1 <= MAX_CONCURRENT_REQUESTS <= 50  # low enough to bound a flood, high enough that two phones never hit it
 
 
 def test_invite_codes_expire_through_dynamodb_ttl():
