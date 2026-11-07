@@ -12,6 +12,7 @@ Tokens and invite codes are 256-bit random values, so a plain SHA-256 is enough;
 
 import hashlib
 import hmac
+import re
 import secrets
 import time
 import uuid
@@ -267,6 +268,32 @@ def rename_device(table: Any, session: Session, device_id: str, name: object) ->
             raise NotFound from err
         raise
     return {"deviceId": device_id, "name": clean}
+
+
+AVATAR_COLORS = ("#6aa9ff", "#ff8fb1", "#f5b942", "#7bd389", "#b69cff", "#ff9f6b", "#5fd0d0", "#e57fd4")
+
+
+class InvalidColor(Exception):
+    pass
+
+
+def person_key(name: str) -> str:
+    """What two names share when they are the same person: the first word, lowercased ("Yara's iPad" is Yara)."""
+    return re.split(r"[\s'\u2019]", name.strip())[0].lower()[:MAX_NAME_LENGTH]
+
+
+def set_color(table: Any, session: Session, color: object) -> dict[str, str]:
+    """Saves the avatar colour of this device's person for the whole household, so both phones draw it the same."""
+    if color not in AVATAR_COLORS:
+        raise InvalidColor
+    device = get_device(table, session)
+    if device is None:
+        raise NotFound
+    key = person_key(person_of(device))
+    if not key:
+        raise InvalidName  # nobody to colour until the person has picked a name
+    table.put_item(Item={"PK": f"H#{session.household_id}", "SK": f"PERSON#{key}", "color": color})
+    return {"color": str(color)}
 
 
 def list_people(table: Any, session: Session) -> list[str]:

@@ -16,8 +16,23 @@ export function initial(name: string): string {
   return firstWord(name).charAt(0).toUpperCase() || '?';
 }
 
-export function avatarColor(name: string): string {
+/** The colours a person can pick; the automatic ones below are all among them. */
+export const AVATAR_COLORS = [
+  { name: 'Blue', value: '#6aa9ff' },
+  { name: 'Pink', value: '#ff8fb1' },
+  { name: 'Yellow', value: '#f5b942' },
+  { name: 'Green', value: '#7bd389' },
+  { name: 'Purple', value: '#b69cff' },
+  { name: 'Orange', value: '#ff9f6b' },
+  { name: 'Teal', value: '#5fd0d0' },
+  { name: 'Magenta', value: '#e57fd4' },
+];
+
+/** `chosen` is what the household saved (first word, lowercased, to colour); without a choice the colour is automatic. */
+export function avatarColor(name: string, chosen: Record<string, string> = {}): string {
   const key = firstWord(name).toLowerCase();
+  const picked = chosen[key];
+  if (picked) return picked;
   const known = KNOWN[key];
   if (known) return known;
   let hash = 0;

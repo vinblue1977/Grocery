@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { ApiError, type Api, type Device } from './api';
 import { buildInviteLink } from './invite';
 import { withoutStore, withRenamedStore } from './listState';
+import { AVATAR_COLORS, avatarColor, initial } from './people';
 import { QrCode } from './QrCode';
 import type { Session } from './session';
 import type { ListsState } from './useLists';
@@ -23,6 +24,7 @@ export function Settings({ api, lists, session, onSignedOut, onRenamed, onPerson
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const [renamingDevice, setRenamingDevice] = useState<string | null>(null);
   const [editingPerson, setEditingPerson] = useState<string | null>(null);
+  const [pickedColor, setPickedColor] = useState<string | null>(null);
   const renameInput = useRef<HTMLInputElement>(null);
   const personInput = useRef<HTMLInputElement>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -32,6 +34,8 @@ export function Settings({ api, lists, session, onSignedOut, onRenamed, onPerson
   const [note, setNote] = useState('');
   const [recovery, setRecovery] = useState('');
   const [confirmingRecovery, setConfirmingRecovery] = useState(false);
+
+  const myColor = pickedColor ?? avatarColor(session.person, lists.data?.colors);
 
   const refresh = () =>
     api.devices().then(setDevices, (err: unknown) => {
@@ -110,6 +114,19 @@ export function Settings({ api, lists, session, onSignedOut, onRenamed, onPerson
     }
   };
 
+  const chooseColor = async (color: string) => {
+    setPickedColor(color); // shows at once; the lists pick it up from the next sync
+    try {
+      await api.setColor(color);
+      setNote('');
+      await lists.refresh();
+    } catch (err) {
+      setPickedColor(null);
+      if (err instanceof ApiError && err.status === 401) onSignedOut();
+      else setNote('Could not save that color');
+    }
+  };
+
   const changePerson = async (name: string) => {
     if (!name) return;
     try {
@@ -177,12 +194,31 @@ export function Settings({ api, lists, session, onSignedOut, onRenamed, onPerson
           </form>
         ) : (
           <div class="row">
-            <span>{session.person}</span>
+            <span class="who">
+              <span class="av big" aria-hidden="true" style={{ background: myColor }}>
+                {initial(session.person)}
+              </span>
+              {session.person}
+            </span>
             <button type="button" onClick={() => setEditingPerson(session.person)}>
               Change name
             </button>
           </div>
         )}
+        <div class="muted">Color</div>
+        <div class="swatches" role="group" aria-label="Your color">
+          {AVATAR_COLORS.map((c) => (
+            <button
+              type="button"
+              class="sw"
+              key={c.value}
+              aria-label={c.name}
+              aria-pressed={c.value === myColor}
+              style={{ background: c.value }}
+              onClick={() => void chooseColor(c.value)}
+            />
+          ))}
+        </div>
         <div class="muted">Shown on the items you add. Old items keep the name they had.</div>
       </section>
 

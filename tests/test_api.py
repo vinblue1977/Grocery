@@ -270,3 +270,26 @@ def test_people_are_listed_once_whatever_the_capitalisation(table):
     me = create("iPhone", "Yara")
     join_as(me, "yara", "iPad")
     assert call("GET", "/people", token=me["token"])[1] == {"people": ["Yara"]}
+
+
+def test_a_person_picks_a_colour_that_every_device_of_theirs_and_everyone_else_sees(table):
+    me = create("iPhone", "Victor")
+    yara = join_as(me, "Yara", "iPhone")
+    assert call("GET", "/sync", token=me["token"])[1]["colors"] == {}
+    assert call("PUT", "/me/color", {"color": "#7bd389"}, yara["token"]) == (200, {"color": "#7bd389"})
+    ipad = join_as(me, "Yara's iPad", "iPad")  # the same person: Yara
+    assert call("PUT", "/me/color", {"color": "#f5b942"}, ipad["token"])[0] == 200
+    for device in (me, yara, ipad):
+        assert call("GET", "/sync", token=device["token"])[1]["colors"] == {"yara": "#f5b942"}
+
+
+def test_only_the_offered_colours_are_accepted_and_a_name_is_needed_first(table):
+    me = create("iPhone", "Victor")
+    for bad in ("#000000", "red", None, 5, ["#6aa9ff"]):
+        assert call("PUT", "/me/color", {"color": bad}, me["token"])[0] == 400
+    invite = call("POST", "/invites", token=me["token"])[1]
+    nameless = call("POST", "/join", {"code": invite["code"], "deviceName": "iPad"})[1]
+    assert call("PUT", "/me/color", {"color": "#6aa9ff"}, nameless["token"])[0] == 400
+    assert call("PUT", "/me/color", {"color": "#6aa9ff"})[0] == 401
+    table.delete_item(Key={"PK": f"H#{me['householdId']}", "SK": f"DEVICE#{me['deviceId']}"})
+    assert call("PUT", "/me/color", {"color": "#6aa9ff"}, me["token"])[0] == 401

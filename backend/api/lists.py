@@ -145,7 +145,8 @@ def sync(table: Any, session: Session) -> dict[str, Any]:
         (_item_view(r) for r in rows if r["SK"].startswith("ITEM#") and r["storeId"] in known),
         key=lambda i: (i["updatedAt"], i["id"]),
     )
-    return {"stores": stores, "items": items, "frequent": _frequent_views(table, rows, known), "now": _now()}
+    colors = {r["SK"].removeprefix("PERSON#"): r["color"] for r in rows if r["SK"].startswith("PERSON#")}
+    return {"stores": stores, "items": items, "frequent": _frequent_views(table, rows, known), "colors": colors, "now": _now()}
 
 
 def _count(table: Any, session: Session, prefix: str) -> int:
