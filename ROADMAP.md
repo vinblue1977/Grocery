@@ -23,6 +23,7 @@ Ideas for the Grocery app, roughly in the order to do them. Everything stays on 
 - Swipe an item left to delete it, and Undo for a deleted item or a cleared cart (the delete is sent after six seconds, or when the app goes to the background)
 - "Done shopping" (the old Clear, still undoable), and moving an item to another store from the edit sheet
 - Avatar colors: each person picks one of eight in Settings (saved for the household, so both phones agree); without a pick the color stays automatic
+- Recurring items: set Repeat (weekly, every 2 weeks, monthly) in the edit sheet; Done shopping rests them under "Coming back" and they return to To buy on their day (or with Add now)
 - Checked on a real iPhone: offline edit and replay, and the paper-list scan on a handwritten list
 
 ## Next
@@ -39,7 +40,7 @@ Ideas for the Grocery app, roughly in the order to do them. Everything stays on 
 
 - **Push notifications** ("Yara added 3 items to Costco") using Web Push, which works for Home Screen apps on iOS 16.4+ and is free.
 - **Faster sync.** A "changed since" check or ETags so polls read almost nothing; WebSockets only if polling ever feels slow.
-- **Recurring lists** (weekly staples that come back after Clear) and a "usually buy together" suggestion.
+- **"Usually buy together"** suggestion.
 - **Share a single list read-only** (for a friend picking things up), and more than two people per household.
 - **Aisle or category order** so a list matches how you walk the store.
 - **Export or backup** of the lists to a file.

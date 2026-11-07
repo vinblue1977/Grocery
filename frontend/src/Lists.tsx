@@ -6,11 +6,14 @@ import { emojiFor } from './emoji';
 import { newId } from './ids';
 import { arrivalFromOthers } from './news';
 import { avatarColor, firstWord, greeting, initial } from './people';
-import { forStore, isLastToBuy, nextStore, pickStore, suggestionsFor, withChecked, withNewItem, withNewStore, withoutChecked, withEditedItem, withoutFrequent, withoutItem, withPinned } from './listState';
+import { DAY_MS, forStore, isLastToBuy, isResting, withItemUpdate, nextStore, pickStore, suggestionsFor, withChecked, withNewItem, withNewStore, withoutChecked, withEditedItem, withoutFrequent, withoutItem, withPinned } from './listState';
 import type { Session } from './session';
 import { ScanSheet } from './ScanSheet';
 import { SwipeRow } from './SwipeRow';
 import type { ListsState } from './useLists';
+
+const repeatLabel = (days: number) => (days === 7 ? 'weekly' : days === 14 ? 'every 2 weeks' : days === 30 ? 'monthly' : '');
+const dayLabel = (ms: number) => new Date(ms).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 
 const changes = (n: number) => `${n} change${n === 1 ? '' : 's'}`;
 
@@ -45,6 +48,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
   const [notice, setNotice] = useState('');
   const [toast, setToast] = useState<{ text: string; storeId?: string; undo?: () => void } | null>(null);
   const [undoBar, setUndoBar] = useState<{ text: string; run: () => void } | null>(null);
+  const [showResting, setShowResting] = useState(false);
   const [gone, setGone] = useState<Set<string>>(new Set()); // ids deleted on screen that Undo can still bring back
   const [fresh, setFresh] = useState<string[]>([]); // ids another person just added, highlighted for a moment
   const [celebrating, setCelebrating] = useState<string | null>(null); // store whose last item was just ticked
@@ -146,7 +150,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
 
   // The celebration only belongs to a store that is still empty of to-buy items. A tick waiting offline still celebrates.
   useEffect(() => {
-    if (celebrating && data?.items.some((i) => i.storeId === celebrating && !i.checked)) setCelebrating(null);
+    if (celebrating && data?.items.some((i) => i.storeId === celebrating && !i.checked && !isResting(i))) setCelebrating(null);
   }, [data, celebrating]);
 
   // A NEW "could not be saved" message means the queue gave up on an edit (the tick is rolled back), so the card goes; an old
@@ -200,11 +204,18 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
     );
   }
 
-  const shown = gone.size ? data.items.filter((i) => !gone.has(i.id)) : data.items;
+  // Items hidden while Undo is possible vanish, except bought repeating ones, which already show as coming back.
+  const shown = gone.size
+    ? data.items.flatMap((i): Item[] => {
+        if (!gone.has(i.id)) return [i];
+        const days = i.repeatDays ?? 0;
+        return i.checked && days > 0 && !isResting(i) ? [{ ...i, checked: false, returnsAt: Date.now() + days * DAY_MS }] : [];
+      })
+    : data.items;
   const view = shown === data.items ? data : { ...data, items: shown }; // what is on screen, minus deletes Undo could still bring back
   const storeId = pickStore(data.stores, wanted);
   const editingItem = editingId ? shown.find((i) => i.id === editingId) : undefined; // gone if the other phone deleted it
-  const { toBuy, inCart } = storeId ? forStore(shown, storeId) : { toBuy: [], inCart: [] };
+  const { toBuy, inCart, resting } = storeId ? forStore(shown, storeId) : { toBuy: [], inCart: [], resting: [] };
   const editing = editingOften && !text.trim(); // typing means adding, so Edit mode steps aside
   const storeLabel = data.stores.find((s) => s.id === storeId)?.name ?? '';
   const next = storeId ? nextStore(data.stores, storeId) : null;
@@ -239,20 +250,25 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
     if (!storeId) return;
     const n = inCart.length;
     const ids = inCart.map((i) => i.id);
+    const back = inCart.filter((i) => (i.repeatDays ?? 0) > 0).length;
     setCelebrating(null);
     setCleared(storeId);
     clearTimeout(clearedTimer.current);
     clearedTimer.current = setTimeout(() => setCleared(null), CLEARED_MS);
     trashItems(
       ids,
-      `${n} item${n === 1 ? '' : 's'} bought`,
+      `${n} item${n === 1 ? '' : 's'} bought${back ? ` · ${back} will come back` : ''}`,
       () => {
         // Only what was in the cart when Done shopping was tapped goes; an item ticked since then stays (nothing is kept as a purchase history: bought items are deleted).
         const ticked = (dataRef.current?.items ?? []).filter((i) => i.storeId === storeId && i.checked);
         if (ticked.every((i) => ids.includes(i.id))) {
           void mutate((d) => withoutChecked(d, storeId), { kind: 'clearChecked', storeId });
         } else {
-          for (const id of ids) void mutate((d) => withoutItem(d, id), { kind: 'deleteItem', id });
+          for (const id of ids) {
+            const repeats = (dataRef.current?.items.find((i) => i.id === id)?.repeatDays ?? 0) > 0;
+            if (repeats) void mutate((d) => withItemUpdate(d, id, { resting: true }, Date.now()), { kind: 'updateItem', id, changes: { resting: true } });
+            else void mutate((d) => withoutItem(d, id), { kind: 'deleteItem', id });
+          }
         }
       },
       () => {
@@ -445,6 +461,11 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
                   </span>
                   <button type="button" class="nm" aria-label={`Edit ${item.name}`} onClick={() => setEditingId(item.id)}>
                     {item.name}
+                    {(item.repeatDays ?? 0) > 0 && (
+                      <span class="rep" role="img" aria-label={`Repeats ${repeatLabel(item.repeatDays ?? 0)}`}>
+                        ↻
+                      </span>
+                    )}
                     {fresh.includes(item.id) && <b class="new">New</b>}
                     {item.note && <small class="muted"> {item.note}</small>}
                   </button>
@@ -490,6 +511,40 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
               ))}
             </section>
           )}
+
+          {resting.length > 0 && (
+            <section aria-label="Coming back">
+              <div class="sec">
+                <span>↻ Coming back · {resting.length}</span>
+                <button type="button" class="link-btn" aria-expanded={showResting} onClick={() => setShowResting(!showResting)}>
+                  {showResting ? 'Hide ›' : 'Show ›'}
+                </button>
+              </div>
+              {showResting &&
+                resting.map((item) => (
+                  <div class="it done" key={item.id}>
+                    <span class="em" aria-hidden="true">
+                      {emojiFor(item.name)}
+                    </span>
+                    <button type="button" class="nm" aria-label={`Edit ${item.name}`} onClick={() => setEditingId(item.id)}>
+                      {item.name}
+                      <small class="muted">
+                        <br />
+                        back {dayLabel(item.returnsAt ?? 0)} · {repeatLabel(item.repeatDays ?? 0)}
+                      </small>
+                    </button>
+                    <button
+                      type="button"
+                      class="again"
+                      aria-label={`Add ${item.name} now`}
+                      onClick={() => void mutate((d) => withItemUpdate(d, item.id, { resting: false }, Date.now()), { kind: 'updateItem', id: item.id, changes: { resting: false } })}
+                    >
+                      Add now
+                    </button>
+                  </div>
+                ))}
+            </section>
+          )}
         </>
       )}
       <input
@@ -511,6 +566,12 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
           stores={data.stores}
           onClose={() => setEditingId(null)}
           onSave={(changes: ItemChanges) => {
+            if (isResting(editingItem) && changes.repeatDays === 0) {
+              // Stopping the repeat of something already bought leaves nothing to come back: it goes for good.
+              void mutate((d) => withoutItem(d, editingItem.id), { kind: 'deleteItem', id: editingItem.id });
+              say(`${editingItem.name} will not come back`);
+              return;
+            }
             void mutate((d) => withEditedItem(d, editingItem.id, changes), { kind: 'updateItem', id: editingItem.id, changes });
             const target = changes.storeId ? data.stores.find((s) => s.id === changes.storeId) : undefined;
             if (target) say(`${changes.name ?? editingItem.name} moved to ${target.name}`, target.id); // the toast has a View button for that store; the item itself leaves this list

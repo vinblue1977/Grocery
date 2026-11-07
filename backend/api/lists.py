@@ -84,6 +84,17 @@ def _store_view(item: dict[str, Any]) -> dict[str, Any]:
     return {"id": item["id"], "name": item["name"], "order": int(item["order"])}
 
 
+DAY_MS = 86_400_000
+REPEAT_CHOICES = (0, 7, 14, 30)  # days between purchases: 0 is "off"
+
+
+def _returns_at(item: dict[str, Any]) -> int:
+    """When a resting item comes back (milliseconds), or 0 if it is on the list. It rests from `boughtAt` for `repeatDays`."""
+    if "boughtAt" not in item:
+        return 0
+    return int(item["boughtAt"]) + int(item.get("repeatDays", 0)) * DAY_MS
+
+
 def _item_view(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": item["id"],
@@ -93,6 +104,8 @@ def _item_view(item: dict[str, Any]) -> dict[str, Any]:
         "checked": bool(item["checked"]),
         "addedBy": item["addedBy"],
         "updatedAt": int(item["updatedAt"]),
+        "repeatDays": int(item.get("repeatDays", 0)),
+        "returnsAt": _returns_at(item),
     }
 
 
@@ -139,6 +152,7 @@ def sync(table: Any, session: Session) -> dict[str, Any]:
     if not any(r["SK"] == "META#SEEDED" for r in rows):
         _seed_defaults(table, session)
         rows = _all(table, session)
+    rows = _wake_due(table, session, rows)
     stores = sorted((_store_view(r) for r in rows if r["SK"].startswith("STORE#")), key=lambda s: (s["order"], s["name"]))
     known = {s["id"] for s in stores}  # an item whose store was deleted at the same moment never shows up
     items = sorted(
@@ -147,6 +161,29 @@ def sync(table: Any, session: Session) -> dict[str, Any]:
     )
     colors = {r["SK"].removeprefix("PERSON#"): r["color"] for r in rows if r["SK"].startswith("PERSON#")}
     return {"stores": stores, "items": items, "frequent": _frequent_views(table, rows, known), "colors": colors, "now": _now()}
+
+
+def _wake_due(table: Any, session: Session, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Puts items whose rest is over back on the list. Whichever phone syncs first does it; a second try is harmless."""
+    now = _now()
+    woken: dict[str, int] = {}
+    for row in rows:
+        if row["SK"].startswith("ITEM#") and "boughtAt" in row and _returns_at(row) <= now:
+            try:
+                table.update_item(
+                    Key={"PK": row["PK"], "SK": row["SK"]},
+                    UpdateExpression="REMOVE boughtAt SET updatedAt = :now",
+                    ConditionExpression="boughtAt = :was",  # only the rest that was read, not a fresh one
+                    ExpressionAttributeValues={":now": now, ":was": row["boughtAt"]},
+                )
+            except ClientError:
+                continue  # woken or re-rested by the other phone meanwhile, or throttled: the next sync settles it
+            woken[row["SK"]] = now
+    if not woken:
+        return rows
+    return [
+        {**{k: v for k, v in r.items() if k != "boughtAt"}, "updatedAt": woken[r["SK"]]} if r["SK"] in woken else r for r in rows
+    ]
 
 
 def _count(table: Any, session: Session, prefix: str) -> int:
@@ -207,14 +244,16 @@ def add_store(table: Any, session: Session, name: object, store_id: object = Non
     return _store_view(item), True
 
 
-def _update(table: Any, session: Session, sk: str, fields: dict[str, Any]) -> dict[str, Any]:
+def _update(table: Any, session: Session, sk: str, fields: dict[str, Any], remove: list[str] | None = None) -> dict[str, Any]:
     """Sets only the given fields, and only if the row still exists, so an edit can't bring back something deleted elsewhere."""
     names = {f"#{k}": k for k in fields}
     values = {f":{k}": v for k, v in fields.items()}
     try:
         return table.update_item(
             Key={"PK": household_key(session), "SK": sk},
-            UpdateExpression="SET " + ", ".join(f"#{k} = :{k}" for k in fields),
+            UpdateExpression=("REMOVE " + ", ".join(remove) + " " if remove else "")
+            + "SET "
+            + ", ".join(f"#{k} = :{k}" for k in fields),
             ConditionExpression="attribute_exists(PK)",
             ExpressionAttributeNames=names,
             ExpressionAttributeValues=values,
@@ -364,6 +403,24 @@ def update_item(table: Any, session: Session, item_id: str, changes: dict[str, A
         fields["name"] = clean_text(changes["name"], MAX_NAME, required=True)
     if "note" in changes:
         fields["note"] = clean_text(changes["note"], MAX_NOTE)
+    remove: list[str] = []
+    if "repeatDays" in changes:
+        days = changes["repeatDays"]
+        if not isinstance(days, int) or isinstance(days, bool) or days not in REPEAT_CHOICES:  # 7.0 is not 7: it can't be stored
+            raise Invalid("repeatDays must be 0, 7, 14 or 30")
+        fields["repeatDays"] = days
+    if "resting" in changes:
+        if not isinstance(changes["resting"], bool):
+            raise Invalid("resting must be true or false")
+        if changes["resting"]:
+            current = _get(table, session, f"ITEM#{item_id}")
+            days = fields.get("repeatDays", current.get("repeatDays", 0))
+            if not days:
+                raise Invalid("only an item that repeats can rest")
+            fields["boughtAt"] = _now()
+            fields["checked"] = False
+        else:
+            remove.append("boughtAt")
     if "storeId" in changes:
         store_id = changes["storeId"]
         if not isinstance(store_id, str):
@@ -374,7 +431,7 @@ def update_item(table: Any, session: Session, item_id: str, changes: dict[str, A
             raise Invalid("storeId is not one of your stores") from None
         fields["storeId"] = store_id
     fields["updatedAt"] = _now()
-    return _item_view(_update(table, session, f"ITEM#{item_id}", fields))
+    return _item_view(_update(table, session, f"ITEM#{item_id}", fields, remove))
 
 
 def delete_item(table: Any, session: Session, item_id: str) -> None:
@@ -382,13 +439,29 @@ def delete_item(table: Any, session: Session, item_id: str) -> None:
     table.delete_item(Key={"PK": household_key(session), "SK": f"ITEM#{item_id}"})
 
 
-def clear_checked(table: Any, session: Session, store_id: str) -> int:
+def clear_checked(table: Any, session: Session, store_id: str) -> dict[str, int]:
     _get(table, session, f"STORE#{store_id}")
-    doomed = [r for r in _all(table, session) if r["SK"].startswith("ITEM#") and r["storeId"] == store_id and r["checked"]]
+    bought = [r for r in _all(table, session) if r["SK"].startswith("ITEM#") and r["storeId"] == store_id and r["checked"]]
+    now = _now()
+    resting_gone = 0
+    resting = [r for r in bought if int(r.get("repeatDays", 0)) > 0]
+    doomed = [r for r in bought if int(r.get("repeatDays", 0)) == 0]
     with table.batch_writer() as batch:
         for row in doomed:
             batch.delete_item(Key={"PK": row["PK"], "SK": row["SK"]})
-    return len(doomed)
+    for row in resting:  # repeating items are not deleted: they rest until their interval is over
+        try:
+            table.update_item(
+                Key={"PK": row["PK"], "SK": row["SK"]},
+                UpdateExpression="SET checked = :no, boughtAt = :now, updatedAt = :now",
+                ConditionExpression="attribute_exists(PK)",
+                ExpressionAttributeValues={":no": False, ":now": now},
+            )
+        except ClientError as err:
+            if err.response["Error"]["Code"] != "ConditionalCheckFailedException":
+                raise
+            resting_gone += 1  # the other phone deleted it meanwhile: nothing to rest
+    return {"removed": len(doomed), "resting": len(resting) - resting_gone}
 
 
 MAX_BULK = 50
@@ -402,7 +475,11 @@ def add_items(table: Any, session: Session, entries: object, added_by: str) -> d
         raise Invalid(f"at most {MAX_BULK} items at a time")
     rows = _all(table, session)
     stores = {r["id"] for r in rows if r["SK"].startswith("STORE#")}
-    existing = {(r["storeId"], r["name"].lower()) for r in rows if r["SK"].startswith("ITEM#") and not r["checked"]}
+    existing = {
+        (r["storeId"], r["name"].lower())
+        for r in rows
+        if r["SK"].startswith("ITEM#") and not r["checked"] and "boughtAt" not in r
+    }
     total = sum(1 for r in rows if r["SK"].startswith("ITEM#"))
     fresh: list[dict[str, Any]] = []
     skipped = 0

@@ -1,10 +1,12 @@
+import type { ItemUpdate } from './api';
+
 const KEY = 'grocery.queue';
 const VERSION = 1; // bump when the Op shape changes, so an old queue is dropped instead of crashing the replay
 
 /** One edit waiting to reach the server. Plain data only, so it survives being written to storage and replayed. */
 export type Op =
   | { kind: 'addItem'; id: string; storeId: string; name: string; note?: string; addedBy?: string }
-  | { kind: 'updateItem'; id: string; changes: { checked?: boolean; name?: string; note?: string; storeId?: string } }
+  | { kind: 'updateItem'; id: string; changes: ItemUpdate }
   | { kind: 'deleteItem'; id: string }
   | { kind: 'clearChecked'; storeId: string }
   | { kind: 'addStore'; id: string; name: string }
@@ -14,7 +16,7 @@ export type Op =
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const strings = (v: Record<string, unknown>, keys: string[]) => keys.every((k) => typeof v[k] === 'string');
-const optional = (v: Record<string, unknown>, key: string, type: 'string' | 'boolean') => v[key] === undefined || typeof v[key] === type;
+const optional = (v: Record<string, unknown>, key: string, type: 'string' | 'boolean' | 'number') => v[key] === undefined || typeof v[key] === type;
 
 /** Shape check for one op: a queue from another version, or hand-edited storage, is dropped rather than replayed. */
 export function isOp(value: unknown): value is Op {
@@ -28,7 +30,9 @@ export function isOp(value: unknown): value is Op {
         typeof value.id === 'string' && isObject(c) && optional(c, 'checked', 'boolean') &&
         optional(c, 'name', 'string') &&
         optional(c, 'note', 'string') &&
-        optional(c, 'storeId', 'string')
+        optional(c, 'storeId', 'string') &&
+        optional(c, 'repeatDays', 'number') &&
+        optional(c, 'resting', 'boolean')
       );
     }
     case 'deleteItem':

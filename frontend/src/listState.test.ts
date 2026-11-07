@@ -3,10 +3,13 @@ import type { Item, Snapshot } from './api';
 import {
   applyOp,
   forStore,
+  isLastToBuy,
   pickStore,
   suggestionsFor,
+  DAY_MS,
   withChecked,
   withEditedItem,
+  withItemUpdate,
   withNewItem,
   withNewStore,
   withoutChecked,
@@ -136,5 +139,55 @@ describe('applyOp', () => {
     ] as const) {
       expect(applyOp(base, op)).toEqual(base);
     }
+  });
+});
+
+describe('repeating items', () => {
+  const repeating = (id: string, storeId: string, checked: boolean, repeatDays: number, returnsAt = 0): Item => ({
+    ...item(id, storeId, checked),
+    repeatDays,
+    returnsAt,
+  });
+  const NOW = 1_000_000;
+
+  it('keeps resting items out of both lists and lists them by return day', () => {
+    const items = [item('a', 'c'), repeating('late', 'c', false, 30, NOW + 9 * DAY_MS), repeating('soon', 'c', false, 7, NOW + DAY_MS), repeating('other', 'p', false, 7, NOW)];
+    const { toBuy, inCart, resting } = forStore(items, 'c');
+    expect([toBuy.map((i) => i.id), inCart, resting.map((i) => i.id)]).toEqual([['a'], [], ['soon', 'late']]);
+  });
+
+  it('Done shopping deletes normal bought items and rests repeating ones until their day', () => {
+    const base: Snapshot = {
+      ...data,
+      items: [item('eggs', 'c', true), repeating('milk', 'c', true, 7), repeating('tea', 'p', true, 14), item('rice', 'c')],
+    };
+    const after = withoutChecked(base, 'c', NOW);
+    expect(after.items.map((i) => i.id)).toEqual(['milk', 'tea', 'rice']); // eggs gone; tea is another store's
+    expect(after.items[0]).toMatchObject({ checked: false, returnsAt: NOW + 7 * DAY_MS });
+    expect(after.items[1]).toMatchObject({ checked: true, returnsAt: 0 });
+  });
+
+  it('applies rest, add-now and a changed interval the way the server does', () => {
+    const base: Snapshot = { ...data, items: [repeating('milk', 'c', true, 7)] };
+    const rested = withItemUpdate(base, 'milk', { resting: true }, NOW);
+    expect(rested.items[0]).toMatchObject({ checked: false, returnsAt: NOW + 7 * DAY_MS });
+    expect(withItemUpdate(rested, 'milk', { resting: false }, NOW).items[0]?.returnsAt).toBe(0);
+    expect(withItemUpdate(rested, 'milk', { repeatDays: 30 }, NOW).items[0]?.returnsAt).toBe(NOW + 30 * DAY_MS);
+    const plain = withItemUpdate({ ...data, items: [item('a', 'c', true)] }, 'a', { resting: true }, NOW);
+    expect(plain.items[0]?.returnsAt ?? 0).toBe(0); // an item that does not repeat cannot rest
+    expect(withEditedItem(base, 'milk', { repeatDays: 14 }).items[0]?.repeatDays).toBe(14);
+  });
+
+  it('replays a queued rest and a queued Done shopping on a fresh snapshot', () => {
+    const base: Snapshot = { ...data, items: [repeating('milk', 'c', true, 7), item('eggs', 'c', true)] };
+    expect(applyOp(base, { kind: 'clearChecked', storeId: 'c' }).items.map((i) => [i.id, (i.returnsAt ?? 0) > 0])).toEqual([['milk', true]]);
+    expect(applyOp(base, { kind: 'updateItem', id: 'milk', changes: { resting: true } }).items[0]?.returnsAt).toBeGreaterThan(0);
+  });
+});
+
+describe('the last item to buy', () => {
+  it('ignores items that are resting, so the celebration still fires', () => {
+    const items: Item[] = [item('a', 'c'), { ...item('oats', 'c'), repeatDays: 7, returnsAt: 5 }];
+    expect(isLastToBuy(items, 'c', 'a')).toBe(true);
   });
 });

@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Item, Store } from './api';
 
+export const REPEATS = [
+  { days: 0, label: 'Off' },
+  { days: 7, label: 'Weekly' },
+  { days: 14, label: 'Every 2 weeks' },
+  { days: 30, label: 'Monthly' },
+];
 export const QUICK_NOTES = ['1', '2', '3', '1 lb', '2 lb', 'dozen'];
 const MAX_NAME = 80; // the same limits as the server
 const MAX_NOTE = 120;
@@ -9,6 +15,7 @@ export interface ItemChanges {
   name?: string;
   note?: string;
   storeId?: string;
+  repeatDays?: number;
 }
 
 interface Props {
@@ -24,6 +31,7 @@ export function EditSheet({ item, stores, onSave, onClose }: Props) {
   const [name, setName] = useState(item.name);
   const [note, setNote] = useState(item.note);
   const [storeId, setStoreId] = useState(item.storeId);
+  const [repeatDays, setRepeatDays] = useState(item.repeatDays ?? 0);
   const noteBox = useRef<HTMLInputElement>(null);
 
   useEffect(() => noteBox.current?.focus(), []); // the quantity is what you usually come to change
@@ -34,6 +42,7 @@ export function EditSheet({ item, stores, onSave, onClose }: Props) {
     ...(trimmedName !== item.name ? { name: trimmedName } : {}),
     ...(trimmedNote !== item.note ? { note: trimmedNote } : {}),
     ...(storeId !== item.storeId ? { storeId } : {}),
+    ...(repeatDays !== (item.repeatDays ?? 0) ? { repeatDays } : {}),
   };
   const canSave = trimmedName !== '' && Object.keys(changes).length > 0;
 
@@ -96,6 +105,16 @@ export function EditSheet({ item, stores, onSave, onClose }: Props) {
               </div>
             </div>
           )}
+          <div class="field">
+            <span class="muted">Repeat</span>
+            <div class="chips wrap" role="group" aria-label="Repeat">
+              {REPEATS.map((r) => (
+                <button type="button" class={r.days === repeatDays ? 'chip on' : 'chip'} key={r.days} aria-pressed={r.days === repeatDays} onClick={() => setRepeatDays(r.days)}>
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <div class="row">
             <button type="button" class="ghost" onClick={onClose}>
               Cancel
