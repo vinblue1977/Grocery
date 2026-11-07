@@ -144,3 +144,8 @@ svg.qr { display: block; width: min(240px, 100%); margin: 12px auto; border-radi
   .it.pop, .it.pop .ck.on, .it.fresh, .confetti i, .cbody .big, .toast { animation: none; }
   .it.pop::before, .it.pop::after { display: none; }
 }
+.banner {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px; max-width: 448px; margin: 8px auto 0;
+  background: var(--acc); color: var(--bg); border-radius: 12px; padding: 10px 14px; font-weight: 600;
+}
+.banner button { background: var(--bg); color: var(--acc); border: 0; border-radius: 8px; padding: 4px 10px; font-size: 13px; font-weight: 600; }

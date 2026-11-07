@@ -26,7 +26,11 @@ export function createReloader(hasPendingEdits: () => boolean, reload: () => voi
  * Registers the worker, checks for a new one whenever the app returns to the foreground, and reloads onto updates.
  * A reload would cancel a tap or typing in progress, so after an upgrade it waits until the app goes to the background.
  */
-export function setupServiceWorker(hasPendingEdits: () => boolean = () => false, reload: () => void = () => location.reload()): void {
+export function setupServiceWorker(
+  hasPendingEdits: () => boolean = () => false,
+  reload: () => void = () => location.reload(),
+  onUpdate: () => void = () => undefined,
+): void {
   if (!('serviceWorker' in navigator)) return;
   const sw = navigator.serviceWorker;
   let hadController = sw.controller !== null;
@@ -34,7 +38,10 @@ export function setupServiceWorker(hasPendingEdits: () => boolean = () => false,
   sw.addEventListener('controllerchange', () => {
     // The first worker claiming a page that had none is an install, not an upgrade: nothing to reload onto.
     if (!hadController) hadController = true;
-    else reloader.onControllerChange();
+    else {
+      reloader.onControllerChange();
+      onUpdate(); // the page stays open (it waits for the background), so offer a reload now
+    }
   });
   let registration: ServiceWorkerRegistration | undefined;
   document.addEventListener('visibilitychange', () => {

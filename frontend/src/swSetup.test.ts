@@ -39,6 +39,16 @@ describe('setupServiceWorker', () => {
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
+  it('tells the page about an upgrade, but not about the first install', () => {
+    const onUpdate = vi.fn();
+    const sw = fakeServiceWorker(null, () => Promise.resolve({ update: () => Promise.resolve() }));
+    setupServiceWorker(() => false, vi.fn(), onUpdate);
+    sw.changed(); // install
+    expect(onUpdate).not.toHaveBeenCalled();
+    sw.changed(); // upgrade
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+  });
+
   it('also upgrades a page that started with no worker, after its first install', () => {
     const reload = vi.fn();
     const sw = fakeServiceWorker(null, () => Promise.resolve({ update: () => Promise.resolve() }));
