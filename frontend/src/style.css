@@ -43,6 +43,7 @@ svg.qr { display: block; width: min(240px, 100%); margin: 12px auto; border-radi
 .tab[aria-selected='true'] { background: var(--acc); border-color: var(--acc); color: var(--bg); }
 .add { display: flex; gap: 6px; margin: 4px 0 10px; }
 .add input { flex: 1; min-width: 0; }
+.row > .add { flex: 1; min-width: 0; margin: 0; }
 .add button { padding: 0 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; }
 .add .plus { background: var(--acc); border-color: var(--acc); color: var(--bg); font-size: 20px; }
 .sec { display: flex; justify-content: space-between; align-items: center; margin: 12px 2px 6px; color: var(--mut); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
