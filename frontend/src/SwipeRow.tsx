@@ -16,12 +16,13 @@ interface Props {
 export function SwipeRow({ onDelete, children, class: className = '' }: Props) {
   const [x, setX] = useState(0);
   const [dragging, setDragging] = useState(false);
-  const start = useRef<{ x: number; y: number; from: number; swiping: boolean } | null>(null);
+  const start = useRef<{ x: number; y: number; from: number; swiping: boolean; now: number } | null>(null);
+  const swiped = useRef(false); // the click a browser sends right after a swipe must not open the editor
   const box = useRef<HTMLDivElement>(null);
 
   const down = (e: PointerEvent) => {
     if ((e.target as HTMLElement).closest('.del')) return;
-    start.current = { x: e.clientX, y: e.clientY, from: x, swiping: false };
+    start.current = { x: e.clientX, y: e.clientY, from: x, swiping: false, now: x };
   };
   const move = (e: PointerEvent) => {
     const s = start.current;
@@ -34,20 +35,25 @@ export function SwipeRow({ onDelete, children, class: className = '' }: Props) {
       box.current?.setPointerCapture?.(e.pointerId);
     }
     const width = box.current?.offsetWidth || 300;
-    setX(Math.max(-width, Math.min(0, s.from + dx)));
+    s.now = Math.max(-width, Math.min(0, s.from + dx));
+    setX(s.now);
   };
   const up = () => {
     const s = start.current;
     start.current = null;
     if (!s?.swiping) return;
     setDragging(false);
+    swiped.current = true;
+    setTimeout(() => (swiped.current = false), 50);
     const width = box.current?.offsetWidth || 300;
-    if (-x > width * FAR) onDelete();
-    else setX(-x > SNAP ? -REVEAL : 0);
+    if (-s.now > width * FAR) {
+      onDelete();
+      setX(0); // the row is hidden by the parent; if it is not, it must not stay off-screen
+    } else setX(-s.now > SNAP ? -REVEAL : 0);
   };
   // A tap on an open row closes it instead of opening the editor underneath.
   const tapClose = (e: MouseEvent) => {
-    if (x === 0) return;
+    if (x === 0 && !swiped.current) return;
     e.stopPropagation();
     e.preventDefault();
     setX(0);

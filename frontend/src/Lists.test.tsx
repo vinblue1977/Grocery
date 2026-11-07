@@ -397,6 +397,26 @@ describe('Lists screen', () => {
       expect(api.deleteItem).toHaveBeenCalledWith('milk');
     });
 
+    it('only clears what was in the cart when Clear was tapped, not an item ticked during the wait', async () => {
+      const root = await open();
+      await click(button(root, 'Clear'));
+      await click(root.querySelector('[aria-label="Check off Milk"]'));
+      await tick(6100);
+      expect(api.clearChecked).not.toHaveBeenCalled();
+      expect(api.deleteItem).toHaveBeenCalledWith('eggs');
+      expect(api.deleteItem).not.toHaveBeenCalledWith('milk');
+    });
+
+    it('lets an item that failed to delete show again instead of hiding it for good', async () => {
+      api.deleteItem = vi.fn().mockRejectedValue(new ApiError(404, 'gone'));
+      const root = await open();
+      await click(root.querySelector('[aria-label="Delete Milk"]'));
+      await tick(6100);
+      await tick(10000);
+      expect(api.deleteItem).toHaveBeenCalled();
+      expect(text(root)).toContain('Milk');
+    });
+
     it('clears the cart after six seconds unless Undo is tapped', async () => {
       const root = await open();
       await click(button(root, 'Clear'));

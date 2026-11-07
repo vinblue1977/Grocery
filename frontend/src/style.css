@@ -141,7 +141,7 @@ svg.qr { display: block; width: min(240px, 100%); margin: 12px auto; border-radi
 .empty { text-align: center; padding: 28px 8px; }
 .empty .big { width: 96px; height: 96px; margin: 0 auto 12px; border-radius: 50%; background: var(--card); border: 1px solid var(--line); display: grid; place-items: center; font-size: 46px; }
 .empty .line { margin: 0 0 4px; font-size: 18px; font-weight: 600; }
-.toasts { position: fixed; left: 0; right: 0; bottom: calc(16px + env(safe-area-inset-bottom)); display: flex; justify-content: center; padding: 0 16px; pointer-events: none; z-index: 20; }
+.toasts { position: fixed; left: 0; right: 0; bottom: calc(16px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 0 16px; pointer-events: none; z-index: 20; }
 .toast { pointer-events: auto; display: flex; align-items: center; gap: 12px; max-width: 448px; padding: 10px 14px; border-radius: 14px; background: var(--card); color: var(--ink); border: 1px solid var(--line); box-shadow: 0 6px 20px #0006; font-size: 14px; animation: rise 0.25s ease-out; }
 .toast button { background: none; border: 0; color: var(--acc); font-weight: 700; padding: 6px; }
 @keyframes rise { from { opacity: 0; transform: translateY(12px); } }

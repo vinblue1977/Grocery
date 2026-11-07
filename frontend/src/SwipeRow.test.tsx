@@ -79,4 +79,21 @@ describe('SwipeRow', () => {
     expect(onTap).toHaveBeenCalledTimes(1);
     expect(offset()).toBe('translateX(0px)');
   });
+
+  it('swallows the click that follows a small swipe, and reads the live position on a fast flick', async () => {
+    const { root, pointer, onDelete, onTap } = mount();
+    await pointer('pointerdown', 200);
+    await pointer('pointermove', 175);
+    await pointer('pointerup', 175);
+    await act(() => (root.querySelector('.nm') as HTMLElement).click());
+    expect(onTap).not.toHaveBeenCalled();
+    // down, move and up all land before the next render
+    await act(() => {
+      const box = root.querySelector('.swipe') as HTMLElement;
+      for (const [type, x] of [['pointerdown', 290], ['pointermove', 40], ['pointerup', 40]] as const) {
+        box.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: 0 }));
+      }
+    });
+    expect(onDelete).toHaveBeenCalledTimes(1);
+  });
 });
