@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import type { Item } from './api';
+import type { Item, Store } from './api';
 
 export const QUICK_NOTES = ['1', '2', '3', '1 lb', '2 lb', 'dozen'];
 const MAX_NAME = 80; // the same limits as the server
@@ -8,19 +8,22 @@ const MAX_NOTE = 120;
 export interface ItemChanges {
   name?: string;
   note?: string;
+  storeId?: string;
 }
 
 interface Props {
   item: Item;
+  stores: Store[];
   /** Only the fields that changed; the sheet closes itself. */
   onSave: (changes: ItemChanges) => void;
   onClose: () => void;
 }
 
-/** Edit an item's name and its quantity or note (for example "2 gal"). Quantity is just text in the note. */
-export function EditSheet({ item, onSave, onClose }: Props) {
+/** Edit an item's name, its quantity or note (for example "2 gal") and which store it is on. Quantity is just text in the note. */
+export function EditSheet({ item, stores, onSave, onClose }: Props) {
   const [name, setName] = useState(item.name);
   const [note, setNote] = useState(item.note);
+  const [storeId, setStoreId] = useState(item.storeId);
   const noteBox = useRef<HTMLInputElement>(null);
 
   useEffect(() => noteBox.current?.focus(), []); // the quantity is what you usually come to change
@@ -30,6 +33,7 @@ export function EditSheet({ item, onSave, onClose }: Props) {
   const changes: ItemChanges = {
     ...(trimmedName !== item.name ? { name: trimmedName } : {}),
     ...(trimmedNote !== item.note ? { note: trimmedNote } : {}),
+    ...(storeId !== item.storeId ? { storeId } : {}),
   };
   const canSave = trimmedName !== '' && Object.keys(changes).length > 0;
 
@@ -74,6 +78,24 @@ export function EditSheet({ item, onSave, onClose }: Props) {
               </button>
             ))}
           </div>
+          {stores.length > 1 && (
+            <div class="field">
+              <span class="muted">Store</span>
+              <div class="chips wrap" role="group" aria-label="Store">
+                {stores.map((store) => (
+                  <button
+                    type="button"
+                    class={store.id === storeId ? 'chip on' : 'chip'}
+                    key={store.id}
+                    aria-pressed={store.id === storeId}
+                    onClick={() => setStoreId(store.id)}
+                  >
+                    {store.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div class="row">
             <button type="button" class="ghost" onClick={onClose}>
               Cancel

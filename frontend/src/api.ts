@@ -85,7 +85,7 @@ export interface Api {
   clearChecked(storeId: string): Promise<void>;
   setFrequent(storeId: string, name: string, changes: { pinned?: boolean; hidden?: boolean }): Promise<unknown>;
   addItem(storeId: string, name: string, note?: string, id?: string): Promise<Item>;
-  updateItem(id: string, changes: Partial<Pick<Item, 'checked' | 'name' | 'note'>>): Promise<Item>;
+  updateItem(id: string, changes: Partial<Pick<Item, 'checked' | 'name' | 'note' | 'storeId'>>): Promise<Item>;
   deleteItem(id: string): Promise<void>;
   scan(imageBase64: string): Promise<ScannedItem[]>;
   addItems(items: NewItem[]): Promise<{ added: number; skipped: number }>;

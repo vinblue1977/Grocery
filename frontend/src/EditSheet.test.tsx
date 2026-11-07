@@ -1,20 +1,25 @@
 import { render } from 'preact';
 import { act } from 'preact/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Item } from './api';
+import type { Item, Store } from './api';
 import { EditSheet, QUICK_NOTES } from './EditSheet';
 
 const item: Item = { id: 'milk', storeId: 'c', name: 'Milk', note: '2 gal', checked: false, addedBy: 'Yara', updatedAt: 1 };
 
+const STORES: Store[] = [
+  { id: 'c', name: 'Costco', order: 0 },
+  { id: 'p', name: 'Patel', order: 1 },
+];
+
 afterEach(() => document.body.replaceChildren());
 
-function setup() {
+function setup(stores: Store[] = STORES) {
   const onSave = vi.fn();
   const onClose = vi.fn();
   const root = document.createElement('div');
   document.body.append(root);
   act(() => {
-    render(<EditSheet item={item} onSave={onSave} onClose={onClose} />, root);
+    render(<EditSheet item={item} stores={stores} onSave={onSave} onClose={onClose} />, root);
   });
   const inputs = () => [...root.querySelectorAll('input')] as HTMLInputElement[];
   const type = (index: number, value: string) =>
@@ -83,5 +88,27 @@ describe('EditSheet', () => {
     await act(() => (root.querySelector('.scrim') as HTMLElement).click());
     expect(onClose).toHaveBeenCalledTimes(3);
     expect(onSave).not.toHaveBeenCalled();
+  });
+});
+
+describe('moving an item to another store', () => {
+  it('shows the stores with the current one selected, and saves only the new store', async () => {
+    const { button, submit, onSave, root } = setup();
+    expect(root.querySelector('[aria-pressed=true]')?.textContent).toBe('Costco');
+    expect((root.querySelector('button[type=submit]') as HTMLButtonElement).disabled).toBe(true); // nothing changed yet
+    await act(() => button('Patel').click());
+    expect(root.querySelector('[aria-pressed=true]')?.textContent).toBe('Patel');
+    await submit();
+    expect(onSave).toHaveBeenCalledWith({ storeId: 'p' });
+  });
+
+  it('can be undone before saving, and is hidden when there is only one store', async () => {
+    const { button, root } = setup();
+    await act(() => button('Patel').click());
+    await act(() => button('Costco').click());
+    expect((root.querySelector('button[type=submit]') as HTMLButtonElement).disabled).toBe(true);
+    document.body.replaceChildren();
+    const single = setup([STORES[0] as Store]);
+    expect(single.root.querySelector('[aria-label=Store]')).toBeNull();
   });
 });

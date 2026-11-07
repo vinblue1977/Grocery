@@ -4,7 +4,7 @@ const VERSION = 1; // bump when the Op shape changes, so an old queue is dropped
 /** One edit waiting to reach the server. Plain data only, so it survives being written to storage and replayed. */
 export type Op =
   | { kind: 'addItem'; id: string; storeId: string; name: string; note?: string; addedBy?: string }
-  | { kind: 'updateItem'; id: string; changes: { checked?: boolean; name?: string; note?: string } }
+  | { kind: 'updateItem'; id: string; changes: { checked?: boolean; name?: string; note?: string; storeId?: string } }
   | { kind: 'deleteItem'; id: string }
   | { kind: 'clearChecked'; storeId: string }
   | { kind: 'addStore'; id: string; name: string }
@@ -25,7 +25,10 @@ export function isOp(value: unknown): value is Op {
     case 'updateItem': {
       const c = value.changes;
       return (
-        typeof value.id === 'string' && isObject(c) && optional(c, 'checked', 'boolean') && optional(c, 'name', 'string') && optional(c, 'note', 'string')
+        typeof value.id === 'string' && isObject(c) && optional(c, 'checked', 'boolean') &&
+        optional(c, 'name', 'string') &&
+        optional(c, 'note', 'string') &&
+        optional(c, 'storeId', 'string')
       );
     }
     case 'deleteItem':

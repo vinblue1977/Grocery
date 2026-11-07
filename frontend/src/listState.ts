@@ -26,7 +26,7 @@ export function withChecked(data: Snapshot, id: string, checked: boolean): Snaps
   return { ...data, items: data.items.map((item) => (item.id === id ? { ...item, checked } : item)) };
 }
 
-export function withEditedItem(data: Snapshot, id: string, changes: { name?: string; note?: string }): Snapshot {
+export function withEditedItem(data: Snapshot, id: string, changes: { name?: string; note?: string; storeId?: string }): Snapshot {
   return { ...data, items: data.items.map((item) => (item.id === id ? { ...item, ...changes } : item)) };
 }
 
