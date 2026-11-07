@@ -28,3 +28,4 @@ data/
 
 .DS_Store
 .claude/settings.local.json
+uv.lock  # stray file from running uv in the repo folder; the dependencies are the hash-checked requirements*.txt
