@@ -109,6 +109,57 @@ def test_revoking_a_device_signs_it_out(table):
     assert call("DELETE", f"/devices/{joined['deviceId']}", token=me["token"])[0] == 404
 
 
+def test_a_device_can_rename_itself(table):
+    me = create()
+    status, body = call("PATCH", f"/devices/{me['deviceId']}", {"name": "  Victor's iPad "}, token=me["token"])
+    assert (status, body) == (200, {"deviceId": me["deviceId"], "name": "Victor's iPad"})
+    assert call("GET", "/me", token=me["token"])[1]["deviceName"] == "Victor's iPad"
+    assert call("GET", "/devices", token=me["token"])[1]["devices"][0]["name"] == "Victor's iPad"
+
+
+def test_device_rename_is_cleaned_and_capped(table):
+    me = create()
+    path = f"/devices/{me['deviceId']}"
+    assert call("PATCH", path, {"name": "x" * 100}, token=me["token"])[1]["name"] == "x" * 40
+    assert call("PATCH", path, {"name": "  Yara  "}, token=me["token"])[1]["name"] == "Yara"
+
+
+def test_a_blank_device_rename_is_refused_and_keeps_the_old_name(table):
+    me = create("Victor")
+    path = f"/devices/{me['deviceId']}"
+    for body in ({"name": "   "}, {}, {"name": 5}):
+        assert call("PATCH", path, body, token=me["token"])[0] == 400
+    assert call("GET", "/me", token=me["token"])[1]["deviceName"] == "Victor"
+
+
+def test_a_device_cannot_rename_another_one(table):
+    me = create()
+    invite = call("POST", "/invites", token=me["token"])[1]
+    joined = call("POST", "/join", {"code": invite["code"], "deviceName": "Yara's iPhone"})[1]
+    assert call("PATCH", f"/devices/{joined['deviceId']}", {"name": "Hacked"}, token=me["token"])[0] == 404
+    assert call("PATCH", "/devices/nope", {"name": "Hacked"}, token=me["token"])[0] == 404
+    names = [d["name"] for d in call("GET", "/devices", token=me["token"])[1]["devices"]]
+    assert names == ["Victor's iPhone", "Yara's iPhone"]
+
+
+def test_a_revoked_device_cannot_rename_or_come_back(table):
+    me = create()
+    invite = call("POST", "/invites", token=me["token"])[1]
+    joined = call("POST", "/join", {"code": invite["code"], "deviceName": "Yara"})[1]
+    assert call("DELETE", f"/devices/{joined['deviceId']}", token=me["token"])[0] == 204
+    assert call("PATCH", f"/devices/{joined['deviceId']}", {"name": "Back"}, token=joined["token"])[0] == 401
+    # Token still valid but the record gone (a race): the conditional update must not recreate it.
+    key = {"PK": f"H#{me['householdId']}", "SK": f"DEVICE#{me['deviceId']}"}
+    table.delete_item(Key=key)
+    assert call("PATCH", f"/devices/{me['deviceId']}", {"name": "Ghost"}, token=me["token"])[0] == 404
+    assert "Item" not in table.get_item(Key=key)
+
+
+def test_renaming_needs_sign_in(table):
+    me = create()
+    assert call("PATCH", f"/devices/{me['deviceId']}", {"name": "X"})[0] == 401
+
+
 def test_unknown_route_is_404_when_signed_in(table):
     me = create()
     assert call("GET", "/nope", token=me["token"])[0] == 404

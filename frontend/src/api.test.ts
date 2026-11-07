@@ -84,6 +84,16 @@ describe('api', () => {
     expect((fetchMock.mock.calls[0] as [string])[0]).toBe('https://x.test/devices/a%2Fb');
     expect(await api.devices()).toHaveLength(1);
   });
+
+  it('renames a device with PATCH', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(ok({ deviceId: 'a/b', name: 'Yara' }));
+    const api = createApi('https://x.test', () => 't', fetchMock);
+    await expect(api.renameDevice('a/b', 'Yara')).resolves.toEqual({ deviceId: 'a/b', name: 'Yara' });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://x.test/devices/a%2Fb');
+    expect(init.method).toBe('PATCH');
+    expect(init.body).toBe(JSON.stringify({ name: 'Yara' }));
+  });
 });
 
 describe('invite links', () => {

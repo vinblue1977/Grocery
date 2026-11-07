@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { ApiError, type Api, type Device } from './api';
 import { buildInviteLink } from './invite';
 import { withoutStore, withRenamedStore } from './listState';
@@ -13,11 +13,14 @@ interface Props {
   lists: ListsState;
   session: Session;
   onSignedOut: () => void;
+  onRenamed: (name: string) => void;
   onBack: () => void;
 }
 
-export function Settings({ api, lists, session, onSignedOut, onBack }: Props) {
+export function Settings({ api, lists, session, onSignedOut, onRenamed, onBack }: Props) {
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
+  const [renamingDevice, setRenamingDevice] = useState<string | null>(null);
+  const renameInput = useRef<HTMLInputElement>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [pref, setPref] = useState<ThemePref>(loadPref);
   const [devices, setDevices] = useState<Device[]>([]);
@@ -31,6 +34,10 @@ export function Settings({ api, lists, session, onSignedOut, onBack }: Props) {
       if (err instanceof ApiError && err.status === 401) onSignedOut(); // this device was revoked elsewhere
       else setNote('Could not load devices');
     });
+
+  useEffect(() => {
+    if (renamingDevice !== null) renameInput.current?.focus(); // once, when the form opens; not on every keystroke
+  }, [renamingDevice === null]);
 
   useEffect(() => {
     void refresh();
@@ -92,6 +99,20 @@ export function Settings({ api, lists, session, onSignedOut, onBack }: Props) {
     } catch (err) {
       if (device.current && err instanceof ApiError && (err.status === 401 || err.status === 404)) onSignedOut(); // already gone
       else setNote(err instanceof ApiError && err.status === 409 ? err.message : 'Could not remove that device');
+    }
+  };
+
+  const renameDevice = async (name: string) => {
+    if (!name) return;
+    try {
+      const done = await api.renameDevice(session.deviceId, name);
+      setRenamingDevice(null); // only close on success, so a failed save keeps what was typed
+      setNote('');
+      onRenamed(done.name);
+      await refresh();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) onSignedOut();
+      else setNote('Could not rename this device');
     }
   };
 
@@ -203,13 +224,45 @@ export function Settings({ api, lists, session, onSignedOut, onBack }: Props) {
         <strong>Devices</strong>
         {devices.map((device) => (
           <div class="row" key={device.deviceId}>
-            <span>
-              {device.name}
-              {device.current && <span class="muted"> (this device)</span>}
-            </span>
-            <button type="button" class="danger" disabled={devices.length <= 1} onClick={() => void revoke(device)}>
-              {device.current ? 'Sign out' : 'Remove'}
-            </button>
+            {device.current && renamingDevice !== null ? (
+              <form
+                class="add"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void renameDevice(renamingDevice.trim());
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' && !e.isComposing) setRenamingDevice(null);
+                }}
+              >
+                <input ref={renameInput} value={renamingDevice} maxLength={40} onInput={(e) => setRenamingDevice(e.currentTarget.value)} />
+                <button type="button" onClick={() => setRenamingDevice(null)}>
+                  Cancel
+                </button>
+                <button type="submit" disabled={!renamingDevice.trim()}>
+                  Save
+                </button>
+              </form>
+            ) : (
+              <>
+                <span>
+                  {device.name}
+                  {device.current && <span class="muted"> (this device)</span>}
+                </span>
+                <span>
+                  {device.current && (
+                    <>
+                      <button type="button" onClick={() => setRenamingDevice(device.name)}>
+                        Rename
+                      </button>{' '}
+                    </>
+                  )}
+                  <button type="button" class="danger" disabled={devices.length <= 1} onClick={() => void revoke(device)}>
+                    {device.current ? 'Sign out' : 'Remove'}
+                  </button>
+                </span>
+              </>
+            )}
           </div>
         ))}
       </section>

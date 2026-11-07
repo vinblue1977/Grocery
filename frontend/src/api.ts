@@ -74,6 +74,7 @@ export interface Api {
   recover(code: string, deviceName: string): Promise<Credentials>;
   devices(): Promise<Device[]>;
   revoke(deviceId: string): Promise<void>;
+  renameDevice(deviceId: string, name: string): Promise<{ deviceId: string; name: string }>;
   sync(): Promise<Snapshot>;
   addStore(name: string, id?: string): Promise<Store>;
   renameStore(id: string, name: string): Promise<Store>;
@@ -142,6 +143,7 @@ export function createApi(baseUrl: string, getToken: () => string | null, fetchI
       return { ...snapshot, frequent: snapshot.frequent ?? [] }; // an older server has no suggestions yet
     },
     addStore: (name, id) => request('POST', '/stores', { name, ...(id ? { id } : {}) }),
+    renameDevice: (deviceId, name) => request('PATCH', `/devices/${encodeURIComponent(deviceId)}`, { name }),
     renameStore: (id, name) => request('PATCH', `/stores/${encodeURIComponent(id)}`, { name }),
     deleteStore: (id) => request('DELETE', `/stores/${encodeURIComponent(id)}`),
     setFrequent: (storeId, name, changes) => request('PUT', '/frequent', { storeId, name, ...changes }),
