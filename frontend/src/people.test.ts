@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { avatarColor, firstWord, greeting, initial, samePerson } from './people';
+import { AVATAR_COLORS, avatarColor, firstWord, greeting, initial, samePerson } from './people';
 
 describe('people', () => {
   it('takes the first word before a space or apostrophe', () => {
@@ -22,6 +22,19 @@ describe('people', () => {
     expect(avatarColor('Maya')).toBe(avatarColor("maya's phone"));
     expect(avatarColor('Maya')).toMatch(/^#[0-9a-f]{6}$/);
     expect(['#6aa9ff', '#ff8fb1']).not.toContain(avatarColor('Maya'));
+  });
+  it('uses the colour the household saved for a person, whatever the device name, and falls back without one', () => {
+    const chosen = { yara: '#7bd389' };
+    expect(avatarColor('Yara', chosen)).toBe('#7bd389');
+    expect(avatarColor("Yara's iPad", chosen)).toBe('#7bd389');
+    expect(avatarColor('Victor', chosen)).toBe('#6aa9ff');
+    expect(AVATAR_COLORS).toHaveLength(8);
+    expect(AVATAR_COLORS.map((c) => c.value)).toContain(avatarColor('Maya')); // an automatic colour is always one of the choices
+  });
+  it('treats names like "constructor" as ordinary names, not object properties', () => {
+    for (const name of ['constructor', 'toString', '__proto__', 'valueOf']) {
+      expect(avatarColor(name, {})).toMatch(/^#[0-9a-f]{6}$/);
+    }
   });
   it('greets by time of day', () => {
     expect(greeting(8, "Victor's phone")).toEqual({ text: 'Good morning, Victor', emoji: '☀️' });

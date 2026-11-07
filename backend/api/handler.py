@@ -82,6 +82,15 @@ def _route(
             return _response(401, {"error": "sign in required"})
         except households.InvalidName:
             return _response(400, {"error": "a name is required"})
+    if (method, path) == ("PUT", "/me/color"):
+        try:
+            return _response(200, households.set_color(table, session, body.get("color")))
+        except households.NotFound:
+            return _response(401, {"error": "sign in required"})
+        except households.InvalidColor:
+            return _response(400, {"error": "unknown color"})
+        except households.InvalidName:
+            return _response(400, {"error": "pick your name first"})
     if (method, path) == ("GET", "/devices"):
         return _response(200, {"devices": households.list_devices(table, session)})
     if route == ("DELETE", "devices", 2):

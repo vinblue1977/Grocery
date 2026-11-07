@@ -58,6 +58,8 @@ export interface Snapshot {
   stores: Store[];
   items: Item[];
   frequent: Frequent[];
+  /** Avatar colours people picked, by first name in lowercase. */
+  colors?: Record<string, string>;
 }
 
 interface Credentials {
@@ -72,6 +74,7 @@ export interface Api {
   me(): Promise<{ householdId: string; deviceId: string; deviceName: string; person: string }>;
   people(): Promise<string[]>;
   setPerson(name: string): Promise<{ person: string }>;
+  setColor(color: string): Promise<{ color: string }>;
   invite(): Promise<{ code: string; expiresAt: number }>;
   createRecovery(): Promise<{ code: string }>;
   recover(code: string, deviceName: string): Promise<Credentials>;
@@ -138,6 +141,7 @@ export function createApi(baseUrl: string, getToken: () => string | null, fetchI
     me: () => request('GET', '/me'),
     people: async () => (await request<{ people: string[] }>('GET', '/people')).people,
     setPerson: (name) => request('PUT', '/me/person', { name }),
+    setColor: (color) => request('PUT', '/me/color', { color }),
     invite: () => request('POST', '/invites'),
     createRecovery: () => request('POST', '/recovery'),
     recover: (code, deviceName) => request('POST', '/recover', { code, deviceName }),
@@ -145,7 +149,7 @@ export function createApi(baseUrl: string, getToken: () => string | null, fetchI
     revoke: (deviceId) => request('DELETE', `/devices/${encodeURIComponent(deviceId)}`),
     sync: async () => {
       const snapshot = await request<Snapshot>('GET', '/sync');
-      return { ...snapshot, frequent: snapshot.frequent ?? [] }; // an older server has no suggestions yet
+      return { ...snapshot, frequent: snapshot.frequent ?? [], colors: snapshot.colors ?? {} }; // an older server has neither yet
     },
     addStore: (name, id) => request('POST', '/stores', { name, ...(id ? { id } : {}) }),
     renameDevice: (deviceId, name) => request('PATCH', `/devices/${encodeURIComponent(deviceId)}`, { name }),

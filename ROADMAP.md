@@ -22,6 +22,7 @@ Ideas for the Grocery app, roughly in the order to do them. Everything stays on 
 - Update banner: "New version ready · Reload" when a new version has downloaded, instead of waiting for the second launch
 - Swipe an item left to delete it, and Undo for a deleted item or a cleared cart (the delete is sent after six seconds, or when the app goes to the background)
 - "Done shopping" (the old Clear, still undoable), and moving an item to another store from the edit sheet
+- Avatar colors: each person picks one of eight in Settings (saved for the household, so both phones agree); without a pick the color stays automatic
 - Checked on a real iPhone: offline edit and replay, and the paper-list scan on a handwritten list
 
 ## Next
@@ -31,7 +32,6 @@ Ideas for the Grocery app, roughly in the order to do them. Everything stays on 
 
 ## Soon
 
-- **Avatar colors for your own names.** The fixed colors for the two household members were keyed to their real names and dropped when the history was cleaned; let each person pick a color in Settings instead.
 - **Offline edge cases.** A replayed edit that arrives after its item was deleted re-creates the item (needs tombstones); the "could not be saved" message under-counts if more edits are dropped while it shows (and should have `role="alert"`); a suggestion you removed can't be restored.
 - **Scan polish.** Move the paper-list scan to Haiku 5.5 with one setting (`-c bedrockModel=...`) once it is confirmed available; let her take several photos in a row; show what a scan cost this month.
 

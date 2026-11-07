@@ -448,7 +448,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
                     {fresh.includes(item.id) && <b class="new">New</b>}
                     {item.note && <small class="muted"> {item.note}</small>}
                   </button>
-                  <span class="av" role="img" aria-label={`Added by ${firstWord(item.addedBy)}`} title={item.addedBy} style={{ background: avatarColor(item.addedBy) }}>
+                  <span class="av" role="img" aria-label={`Added by ${firstWord(item.addedBy)}`} title={item.addedBy} style={{ background: avatarColor(item.addedBy, data.colors) }}>
                     {initial(item.addedBy)}
                   </span>
                   <button

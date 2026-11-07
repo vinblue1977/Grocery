@@ -21,6 +21,7 @@ const click = (el: Element | null | undefined) =>
 const buttons = (root: Element, text: string) => Array.from(root.querySelectorAll('button')).filter((b) => b.textContent === text);
 
 let api: Api;
+let refresh: Mock<() => Promise<void>>;
 let onRenamed: Mock<(name: string) => void>;
 let onPersonChanged: Mock<(person: string) => void>;
 let onSignedOut: Mock<() => void>;
@@ -32,7 +33,7 @@ async function mount() {
     render(
       <Settings
         api={api}
-        lists={{ data: { stores: [], items: [] } } as unknown as ListsState}
+        lists={{ data: { stores: [], items: [], colors: { victor: '#7bd389' } }, refresh } as unknown as ListsState}
         session={session}
         onSignedOut={onSignedOut}
         onRenamed={onRenamed}
@@ -60,12 +61,14 @@ async function typeName(root: Element, value: string) {
 
 beforeEach(() => {
   onRenamed = vi.fn();
+  refresh = vi.fn().mockResolvedValue(undefined);
   onPersonChanged = vi.fn();
   onSignedOut = vi.fn();
   api = {
     devices: vi.fn().mockResolvedValue(devices),
     renameDevice: vi.fn().mockResolvedValue({ deviceId: 'd', name: 'Victor X' }),
     setPerson: vi.fn(async (name: string) => ({ person: name })),
+    setColor: vi.fn(async (color: string) => ({ color })),
   } as unknown as Api;
 });
 afterEach(() => document.body.replaceChildren());
@@ -163,5 +166,53 @@ describe('people', () => {
     api.setPerson = vi.fn().mockRejectedValue(new ApiError(401, 'sign in required'));
     await typeName(root, 'Vic');
     expect(onSignedOut).toHaveBeenCalled();
+  });
+});
+
+describe('avatar color', () => {
+  const swatches = (root: Element) => Array.from(root.querySelectorAll('.swatches button')) as HTMLButtonElement[];
+
+  it('offers eight colors with the saved one selected', async () => {
+    const root = await mount();
+    expect(swatches(root)).toHaveLength(8);
+    expect(swatches(root).filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.getAttribute('aria-label'))).toEqual(['Green']);
+  });
+
+  it('saves a pick, shows it at once and asks the lists to refresh', async () => {
+    const root = await mount();
+    await click(swatches(root).find((b) => b.getAttribute('aria-label') === 'Orange'));
+    await flush();
+    expect(api.setColor).toHaveBeenCalledWith('#ff9f6b');
+    expect(refresh).toHaveBeenCalled();
+  });
+
+  it('goes back to the saved color and says so when saving fails, and signs out if removed', async () => {
+    api.setColor = vi.fn().mockRejectedValue(new ApiError(500, 'boom'));
+    const root = await mount();
+    await click(swatches(root).find((b) => b.getAttribute('aria-label') === 'Orange'));
+    await flush();
+    expect(root.textContent).toContain('Could not save that color');
+    expect(swatches(root).filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.getAttribute('aria-label'))).toEqual(['Green']);
+    api.setColor = vi.fn().mockRejectedValue(new ApiError(401, 'sign in required'));
+    await click(swatches(root).find((b) => b.getAttribute('aria-label') === 'Orange'));
+    await flush();
+    expect(onSignedOut).toHaveBeenCalled();
+  });
+
+  it('takes one pick at a time, and drops the local pick once the synced colors agree', async () => {
+    let finish: () => void = () => undefined;
+    api.setColor = vi.fn().mockImplementation(() => new Promise((resolve) => (finish = () => resolve({ color: '#ff9f6b' }))));
+    const root = await mount();
+    await click(swatches(root).find((b) => b.getAttribute('aria-label') === 'Orange'));
+    expect(swatches(root).every((b) => b.disabled)).toBe(true); // a second tap cannot race the first
+    expect(swatches(root).filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.getAttribute('aria-label'))).toEqual(['Orange']); // shown at once
+    await act(async () => {
+      finish();
+      await Promise.resolve();
+    });
+    await flush();
+    expect(swatches(root).some((b) => b.disabled)).toBe(false);
+    // the refreshed lists still say Green (the mock does not change them), so the screen follows the household, not the old tap
+    expect(swatches(root).filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.getAttribute('aria-label'))).toEqual(['Green']);
   });
 });
