@@ -6,13 +6,23 @@ import { clearSnapshot } from './snapshotCache';
 import { clearSession, loadSession, saveSession, type Session } from './session';
 import { Lists } from './Lists';
 import { Settings } from './Settings';
+import { UpdateBanner } from './UpdateBanner';
 import { useLists } from './useLists';
 import { Welcome } from './Welcome';
 import { WhoAreYou } from './WhoAreYou';
 
 const API_URL = (import.meta.env['VITE_API_URL'] as string | undefined) ?? '';
 
-export function App({ api: injected }: { api?: Api } = {}) {
+export function App({ api }: { api?: Api } = {}) {
+  return (
+    <>
+      <UpdateBanner />
+      <Screens injected={api} />
+    </>
+  );
+}
+
+function Screens({ injected }: { injected: Api | undefined }) {
   const [session, setSession] = useState<Session | null>(loadSession);
   const api = useMemo(() => injected ?? createApi(API_URL, () => loadSession()?.token ?? null), []);
   const signOut = () => {
