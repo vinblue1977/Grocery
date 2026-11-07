@@ -9,6 +9,7 @@ import { avatarColor, firstWord, greeting, initial } from './people';
 import { forStore, isLastToBuy, nextStore, pickStore, suggestionsFor, withChecked, withNewItem, withNewStore, withoutChecked, withEditedItem, withoutFrequent, withoutItem, withPinned } from './listState';
 import type { Session } from './session';
 import { ScanSheet } from './ScanSheet';
+import { SwipeRow } from './SwipeRow';
 import type { ListsState } from './useLists';
 
 const changes = (n: number) => `${n} change${n === 1 ? '' : 's'}`;
@@ -17,6 +18,7 @@ const LAST_STORE = 'grocery.store';
 const TOAST_MS = 5000;
 const FRESH_MS = 4000;
 const CLEARED_MS = 6000;
+const UNDO_MS = 6000; // a delete is only sent once this has passed without Undo
 
 function remembered(): string | null {
   try {
@@ -41,13 +43,18 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
   const [storeName, setStoreName] = useState('');
   const [photo, setPhoto] = useState<File | null>(null);
   const [notice, setNotice] = useState('');
-  const [toast, setToast] = useState<{ text: string; storeId?: string } | null>(null);
+  const [toast, setToast] = useState<{ text: string; storeId?: string; undo?: () => void } | null>(null);
+  const [undoBar, setUndoBar] = useState<{ text: string; run: () => void } | null>(null);
+  const [gone, setGone] = useState<Set<string>>(new Set()); // ids deleted on screen that Undo can still bring back
   const [fresh, setFresh] = useState<string[]>([]); // ids another person just added, highlighted for a moment
   const [celebrating, setCelebrating] = useState<string | null>(null); // store whose last item was just ticked
   const [cleared, setCleared] = useState<string | null>(null); // store whose cart was just cleared
   const [popped, setPopped] = useState<Set<string>>(new Set()); // items just ticked, for the pop animation
   const seen = useRef<Item[] | null>(null); // items at the previous sync; null until the first load
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const trash = useRef<{ ids: string[]; commit: () => void; restore: () => void } | null>(null);
+  const dataRef = useRef<ListsState['data']>(null);
+  const trashTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const freshTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const clearedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const noticeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -57,6 +64,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
   const storeInput = useRef<HTMLInputElement>(null);
   const { data, serverSnapshot, error, mutate, pending, sending, offline, problem, dismissProblem } = lists;
   const [editingId, setEditingId] = useState<string | null>(null);
+  dataRef.current = data;
 
   // A store chosen when it was added but never created (the add was refused) must not linger as the remembered selection.
   const stores = data?.stores;
@@ -80,10 +88,58 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
     toastTimer.current = setTimeout(() => setToast(null), TOAST_MS);
   };
 
+  // A delete shows at once but is only sent after UNDO_MS, so Undo is just "never send it". A second delete, leaving the
+  // app, or the timer ending sends the first one straight away.
+  const commitTrash = () => {
+    clearTimeout(trashTimer.current);
+    const t = trash.current;
+    trash.current = null;
+    if (!t) return;
+    setUndoBar(null);
+    t.commit(); // takes the items out of the list for real (and puts them back if the server refuses)...
+    setGone((old) => new Set([...old].filter((id) => !t.ids.includes(id)))); // ...so they no longer need hiding
+  };
+  const trashItems = (ids: string[], text: string, commit: () => void, restore: () => void) => {
+    commitTrash();
+    setGone((old) => new Set([...old, ...ids]));
+    trash.current = {
+      ids,
+      commit,
+      restore: () => {
+        setGone((old) => new Set([...old].filter((id) => !ids.includes(id))));
+        restore();
+      },
+    };
+    trashTimer.current = setTimeout(commitTrash, UNDO_MS);
+    setUndoBar({
+      text,
+      run: () => {
+        clearTimeout(trashTimer.current);
+        const t = trash.current;
+        trash.current = null;
+        setUndoBar(null);
+        t?.restore();
+      },
+    });
+  };
+
+  useEffect(() => {
+    const flush = () => {
+      if (document.visibilityState === 'hidden') commitTrash();
+    };
+    document.addEventListener('visibilitychange', flush);
+    window.addEventListener('pagehide', commitTrash);
+    return () => {
+      document.removeEventListener('visibilitychange', flush);
+      window.removeEventListener('pagehide', commitTrash);
+    };
+  }, []);
+
+
   useEffect(() => {
     const pops = popTimers.current;
     return () => {
-      for (const t of [toastTimer, freshTimer, clearedTimer, noticeTimer]) clearTimeout(t.current);
+      for (const t of [toastTimer, freshTimer, clearedTimer, noticeTimer, trashTimer]) clearTimeout(t.current);
       for (const t of pops.values()) clearTimeout(t);
     };
   }, []);
@@ -144,14 +200,16 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
     );
   }
 
+  const shown = gone.size ? data.items.filter((i) => !gone.has(i.id)) : data.items;
+  const view = shown === data.items ? data : { ...data, items: shown }; // what is on screen, minus deletes Undo could still bring back
   const storeId = pickStore(data.stores, wanted);
-  const editingItem = editingId ? data.items.find((i) => i.id === editingId) : undefined; // gone if the other phone deleted it
-  const { toBuy, inCart } = storeId ? forStore(data.items, storeId) : { toBuy: [], inCart: [] };
+  const editingItem = editingId ? shown.find((i) => i.id === editingId) : undefined; // gone if the other phone deleted it
+  const { toBuy, inCart } = storeId ? forStore(shown, storeId) : { toBuy: [], inCart: [] };
   const editing = editingOften && !text.trim(); // typing means adding, so Edit mode steps aside
   const storeLabel = data.stores.find((s) => s.id === storeId)?.name ?? '';
   const next = storeId ? nextStore(data.stores, storeId) : null;
   const justCleared = cleared === storeId;
-  const often = storeId ? suggestionsFor(data, storeId, text, editing) : [];
+  const often = storeId ? suggestionsFor(view, storeId, text, editing) : [];
 
   const choose = (id: string) => {
     setWanted(id);
@@ -180,12 +238,37 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
   const clearCart = () => {
     if (!storeId) return;
     const n = inCart.length;
+    const ids = inCart.map((i) => i.id);
     setCelebrating(null);
     setCleared(storeId);
     clearTimeout(clearedTimer.current);
     clearedTimer.current = setTimeout(() => setCleared(null), CLEARED_MS);
-    say(`Cleared ${n} item${n === 1 ? '' : 's'}`);
-    void mutate((d) => withoutChecked(d, storeId), { kind: 'clearChecked', storeId });
+    trashItems(
+      ids,
+      `Cleared ${n} item${n === 1 ? '' : 's'}`,
+      () => {
+        // Only what was in the cart when Clear was tapped goes; an item ticked since then stays.
+        const ticked = (dataRef.current?.items ?? []).filter((i) => i.storeId === storeId && i.checked);
+        if (ticked.every((i) => ids.includes(i.id))) {
+          void mutate((d) => withoutChecked(d, storeId), { kind: 'clearChecked', storeId });
+        } else {
+          for (const id of ids) void mutate((d) => withoutItem(d, id), { kind: 'deleteItem', id });
+        }
+      },
+      () => {
+        setCleared(null);
+        clearTimeout(clearedTimer.current);
+      },
+    );
+  };
+
+  const deleteItem = (item: Item) => {
+    trashItems(
+      [item.id],
+      `${item.name} deleted`,
+      () => void mutate((d) => withoutItem(d, item.id), { kind: 'deleteItem', id: item.id }),
+      () => undefined,
+    );
   };
 
   const closeStoreForm = () => {
@@ -333,49 +416,51 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
               </div>
             )}
             {toBuy.map((item) => (
-              <div class={fresh.includes(item.id) ? 'it fresh' : 'it'} key={item.id}>
-                <button
-                  type="button"
-                  class="ck"
-                  aria-label={`Check off ${item.name}`}
-                  onClick={() => {
-                    if (isLastToBuy(data.items, item.storeId, item.id)) setCelebrating(item.storeId);
-                    setPopped((old) => new Set(old).add(item.id));
-                    clearTimeout(popTimers.current.get(item.id));
-                    popTimers.current.set(
-                      item.id,
-                      setTimeout(() => {
-                        popTimers.current.delete(item.id);
-                        setPopped((old) => {
-                          const next = new Set(old);
-                          next.delete(item.id);
-                          return next;
-                        });
-                      }, 1000),
-                    );
-                    void mutate((d) => withChecked(d, item.id, true), { kind: 'updateItem', id: item.id, changes: { checked: true } });
-                  }}
-                />
-                <span class="em" aria-hidden="true">
-                  {emojiFor(item.name)}
-                </span>
-                <button type="button" class="nm" aria-label={`Edit ${item.name}`} onClick={() => setEditingId(item.id)}>
-                  {item.name}
-                  {fresh.includes(item.id) && <b class="new">New</b>}
-                  {item.note && <small class="muted"> {item.note}</small>}
-                </button>
-                <span class="av" role="img" aria-label={`Added by ${firstWord(item.addedBy)}`} title={item.addedBy} style={{ background: avatarColor(item.addedBy) }}>
-                  {initial(item.addedBy)}
-                </span>
-                <button
-                  type="button"
-                  class="x"
-                  aria-label={`Delete ${item.name}`}
-                  onClick={() => void mutate((d) => withoutItem(d, item.id), { kind: 'deleteItem', id: item.id })}
-                >
-                  ✕
-                </button>
-              </div>
+              <SwipeRow key={item.id} onDelete={() => deleteItem(item)}>
+                <div class={fresh.includes(item.id) ? 'it fresh' : 'it'}>
+                  <button
+                    type="button"
+                    class="ck"
+                    aria-label={`Check off ${item.name}`}
+                    onClick={() => {
+                      if (isLastToBuy(shown, item.storeId, item.id)) setCelebrating(item.storeId);
+                      setPopped((old) => new Set(old).add(item.id));
+                      clearTimeout(popTimers.current.get(item.id));
+                      popTimers.current.set(
+                        item.id,
+                        setTimeout(() => {
+                          popTimers.current.delete(item.id);
+                          setPopped((old) => {
+                            const next = new Set(old);
+                            next.delete(item.id);
+                            return next;
+                          });
+                        }, 1000),
+                      );
+                      void mutate((d) => withChecked(d, item.id, true), { kind: 'updateItem', id: item.id, changes: { checked: true } });
+                    }}
+                  />
+                  <span class="em" aria-hidden="true">
+                    {emojiFor(item.name)}
+                  </span>
+                  <button type="button" class="nm" aria-label={`Edit ${item.name}`} onClick={() => setEditingId(item.id)}>
+                    {item.name}
+                    {fresh.includes(item.id) && <b class="new">New</b>}
+                    {item.note && <small class="muted"> {item.note}</small>}
+                  </button>
+                  <span class="av" role="img" aria-label={`Added by ${firstWord(item.addedBy)}`} title={item.addedBy} style={{ background: avatarColor(item.addedBy) }}>
+                    {initial(item.addedBy)}
+                  </span>
+                  <button
+                    type="button"
+                    class="x"
+                    aria-label={`Delete ${item.name}`}
+                    onClick={() => deleteItem(item)}
+                  >
+                    ✕
+                  </button>
+                </div>
+              </SwipeRow>
             ))}
           </section>
 
@@ -461,6 +546,14 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
         </p>
       )}
       <div class="toasts" aria-live="polite">
+        {undoBar && (
+          <div class="toast">
+            <span>{undoBar.text}</span>
+            <button type="button" onClick={undoBar.run}>
+              Undo
+            </button>
+          </div>
+        )}
         {toast && (
           <div class="toast">
             <span>{toast.text}</span>
