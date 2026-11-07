@@ -5,10 +5,10 @@ import { ApiError, type Api } from './api';
 import { Settings } from './Settings';
 import type { ListsState } from './useLists';
 
-const session = { token: 't', householdId: 'h', deviceId: 'd', deviceName: 'Victor' };
+const session = { token: 't', householdId: 'h', deviceId: 'd', deviceName: 'iPhone', person: 'Victor' };
 const devices = [
-  { deviceId: 'd', name: 'Victor', createdAt: 1, current: true },
-  { deviceId: 'e', name: 'Yara', createdAt: 2, current: false },
+  { deviceId: 'd', name: 'iPhone', person: 'Victor', createdAt: 1, current: true },
+  { deviceId: 'e', name: 'Yara\'s iPad', person: 'Yara', createdAt: 2, current: false },
 ];
 const flush = () =>
   act(async () => {
@@ -22,6 +22,7 @@ const buttons = (root: Element, text: string) => Array.from(root.querySelectorAl
 
 let api: Api;
 let onRenamed: Mock<(name: string) => void>;
+let onPersonChanged: Mock<(person: string) => void>;
 let onSignedOut: Mock<() => void>;
 
 async function mount() {
@@ -35,6 +36,7 @@ async function mount() {
         session={session}
         onSignedOut={onSignedOut}
         onRenamed={onRenamed}
+        onPersonChanged={onPersonChanged}
         onBack={vi.fn()}
       />,
       root,
@@ -58,10 +60,12 @@ async function typeName(root: Element, value: string) {
 
 beforeEach(() => {
   onRenamed = vi.fn();
+  onPersonChanged = vi.fn();
   onSignedOut = vi.fn();
   api = {
     devices: vi.fn().mockResolvedValue(devices),
     renameDevice: vi.fn().mockResolvedValue({ deviceId: 'd', name: 'Victor X' }),
+    setPerson: vi.fn(async (name: string) => ({ person: name })),
   } as unknown as Api;
 });
 afterEach(() => document.body.replaceChildren());
@@ -76,7 +80,7 @@ describe('renaming this device', () => {
   it('saves the trimmed name and tells the app', async () => {
     const root = await mount();
     await click(buttons(root, 'Rename')[0]);
-    expect((root.querySelector('form input') as HTMLInputElement).value).toBe('Victor');
+    expect((root.querySelector('form input') as HTMLInputElement).value).toBe('iPhone');
     await typeName(root, '  Victor X ');
     expect(api.renameDevice).toHaveBeenCalledWith('d', 'Victor X');
     expect(onRenamed).toHaveBeenCalledWith('Victor X');
@@ -95,8 +99,8 @@ describe('renaming this device', () => {
   it('sends the name even if it matches the cached one, so the server copy can be corrected', async () => {
     const root = await mount();
     await click(buttons(root, 'Rename')[0]);
-    await typeName(root, 'Victor');
-    expect(api.renameDevice).toHaveBeenCalledWith('d', 'Victor');
+    await typeName(root, 'iPhone');
+    expect(api.renameDevice).toHaveBeenCalledWith('d', 'iPhone');
   });
 
   it('keeps the form and what was typed when saving fails, and signs out if this device was revoked', async () => {
@@ -126,5 +130,38 @@ describe('renaming this device', () => {
     });
     expect(root.querySelector('form')).toBeNull();
     expect(api.renameDevice).not.toHaveBeenCalled();
+  });
+});
+
+describe('people', () => {
+  it('shows the person under each device name', async () => {
+    const root = await mount();
+    expect(root.textContent).toContain('Signed in as Victor');
+    const rows = Array.from(root.querySelectorAll('.row')).map((r) => r.textContent);
+    expect(rows.some((r) => r?.includes('iPhone') && r.includes('(this device)') && r.includes('Victor'))).toBe(true);
+    expect(rows.some((r) => r?.includes("Yara's iPad") && r.includes('Yara'))).toBe(true);
+  });
+
+  it('changes your name, trimmed, and tells the app', async () => {
+    const root = await mount();
+    await click(buttons(root, 'Change name')[0]);
+    expect((root.querySelector('form input') as HTMLInputElement).value).toBe('Victor');
+    await typeName(root, '  Vic ');
+    expect(api.setPerson).toHaveBeenCalledWith('Vic');
+    expect(onPersonChanged).toHaveBeenCalledWith('Vic');
+    expect(root.querySelector('form')).toBeNull();
+  });
+
+  it('keeps the form when changing the name fails, and signs out if this device was removed', async () => {
+    api.setPerson = vi.fn().mockRejectedValue(new ApiError(500, 'boom'));
+    const root = await mount();
+    await click(buttons(root, 'Change name')[0]);
+    await typeName(root, 'Vic');
+    expect(root.textContent).toContain('Could not change your name');
+    expect((root.querySelector('form input') as HTMLInputElement).value).toBe('Vic');
+    expect(onPersonChanged).not.toHaveBeenCalled();
+    api.setPerson = vi.fn().mockRejectedValue(new ApiError(401, 'sign in required'));
+    await typeName(root, 'Vic');
+    expect(onSignedOut).toHaveBeenCalled();
   });
 });

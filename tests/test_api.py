@@ -15,8 +15,9 @@ def call(method: str, path: str, body: dict | str | None = None, token: str | No
     return res["statusCode"], json.loads(res.get("body") or "{}")
 
 
-def create(name: str = "Victor's iPhone") -> dict:
-    status, body = call("POST", "/household", {"deviceName": name})
+def create(name: str = "Victor's iPhone", person: str | None = None) -> dict:
+    """A first device; the person defaults to the device name, which keeps older tests' "added by" text unchanged."""
+    status, body = call("POST", "/household", {"deviceName": name, "person": name if person is None else person})
     assert status == 201
     return body
 
@@ -29,7 +30,12 @@ def test_create_household_returns_a_working_token(table):
     me = create()
     status, body = call("GET", "/me", token=me["token"])
     assert status == 200
-    assert body == {"householdId": me["householdId"], "deviceId": me["deviceId"], "deviceName": "Victor's iPhone"}
+    assert body == {
+        "householdId": me["householdId"],
+        "deviceId": me["deviceId"],
+        "deviceName": "Victor's iPhone",
+        "person": "Victor's iPhone",
+    }
 
 
 def test_only_one_household_can_exist(table):
@@ -201,3 +207,66 @@ def test_health_does_not_touch_the_table(monkeypatch):
     h.get_table.cache_clear()
     monkeypatch.delenv("TABLE_NAME", raising=False)
     assert call("GET", "/health") == (200, {"ok": True})
+
+
+def join_as(me: dict, person: str, device: str = "iPhone") -> dict:
+    invite = call("POST", "/invites", token=me["token"])[1]
+    joined = call("POST", "/join", {"code": invite["code"], "deviceName": device})[1]
+    assert call("PUT", "/me/person", {"name": person}, joined["token"])[0] == 200
+    return joined
+
+
+def test_a_joined_device_has_no_person_until_it_picks_one(table):
+    me = create("iPhone", "Victor")
+    invite = call("POST", "/invites", token=me["token"])[1]
+    joined = call("POST", "/join", {"code": invite["code"], "deviceName": "iPad"})[1]
+    assert call("GET", "/me", token=joined["token"])[1]["person"] == ""
+    assert call("GET", "/people", token=joined["token"])[1] == {"people": ["Victor"]}
+    costco = next(s["id"] for s in call("GET", "/sync", token=joined["token"])[1]["stores"] if s["name"] == "Costco")
+    assert call("POST", "/items", {"storeId": costco, "name": "Milk"}, joined["token"])[1]["addedBy"] == "Someone"
+
+
+def test_picking_a_person_names_new_items_and_a_second_device_can_share_the_person(table):
+    me = create("iPhone", "Victor")
+    yara = join_as(me, "Yara", "iPhone")
+    second = join_as(me, "Yara", "iPad")
+    assert call("GET", "/people", token=me["token"])[1] == {"people": ["Victor", "Yara"]}
+    assert call("GET", "/me", token=second["token"])[1]["person"] == "Yara"
+    costco = next(s["id"] for s in call("GET", "/sync", token=yara["token"])[1]["stores"] if s["name"] == "Costco")
+    item = call("POST", "/items", {"storeId": costco, "name": "Milk"}, second["token"])[1]
+    assert item["addedBy"] == "Yara"
+    devices = call("GET", "/devices", token=me["token"])[1]["devices"]
+    assert [(d["name"], d["person"]) for d in devices] == [("iPhone", "Victor"), ("iPhone", "Yara"), ("iPad", "Yara")]
+
+
+def test_a_device_made_before_people_existed_uses_its_name_as_the_person(table):
+    me = create()
+    table.update_item(Key={"PK": f"H#{me['householdId']}", "SK": f"DEVICE#{me['deviceId']}"}, UpdateExpression="REMOVE person")
+    assert call("GET", "/me", token=me["token"])[1]["person"] == "Victor's iPhone"
+    assert call("GET", "/people", token=me["token"])[1] == {"people": ["Victor's iPhone"]}
+
+
+def test_changing_the_person_needs_a_name_and_a_signed_in_device(table):
+    me = create("iPhone", "Victor")
+    assert call("PUT", "/me/person", {"name": "  "}, me["token"])[0] == 400
+    assert call("PUT", "/me/person", {}, me["token"])[0] == 400
+    assert call("PUT", "/me/person", {"name": "Vic"})[0] == 401
+    assert call("PUT", "/me/person", {"name": "x" * 99}, me["token"])[1] == {"person": "x" * 40}
+    table.delete_item(Key={"PK": f"H#{me['householdId']}", "SK": f"DEVICE#{me['deviceId']}"})
+    assert call("PUT", "/me/person", {"name": "Vic"}, me["token"])[0] == 401
+    assert table.scan()["Count"] == 2  # the removed device was not recreated (household claim and token remain)
+
+
+def test_renaming_a_device_from_before_people_existed_keeps_its_old_name_as_the_person(table):
+    me = create("Yara")
+    table.update_item(Key={"PK": f"H#{me['householdId']}", "SK": f"DEVICE#{me['deviceId']}"}, UpdateExpression="REMOVE person")
+    assert call("PATCH", f"/devices/{me['deviceId']}", {"name": "Yara iPad"}, me["token"])[0] == 200
+    assert call("GET", "/me", token=me["token"])[1]["person"] == "Yara"
+    assert call("PATCH", f"/devices/{me['deviceId']}", {"name": "Yara iPhone"}, me["token"])[0] == 200
+    assert call("GET", "/me", token=me["token"])[1]["person"] == "Yara"
+
+
+def test_people_are_listed_once_whatever_the_capitalisation(table):
+    me = create("iPhone", "Yara")
+    join_as(me, "yara", "iPad")
+    assert call("GET", "/people", token=me["token"])[1] == {"people": ["Yara"]}

@@ -3,6 +3,8 @@ export interface Session {
   householdId: string;
   deviceId: string;
   deviceName: string;
+  /** Who uses this device, shown on the items it adds. Empty until they pick it after signing in. */
+  person: string;
 }
 
 const KEY = 'grocery.session';
@@ -10,14 +12,19 @@ const KEY = 'grocery.session';
 export function isSession(value: unknown): value is Session {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Record<string, unknown>;
-  return ['token', 'householdId', 'deviceId', 'deviceName'].every((k) => typeof v[k] === 'string' && v[k] !== '');
+  return ['token', 'householdId', 'deviceId', 'deviceName'].every((k) => typeof v[k] === 'string' && v[k] !== '') && typeof v['person'] === 'string';
 }
 
 /** The sign-in lives on this device only; there is no password, the token is the login. */
 export function loadSession(storage: Pick<Storage, 'getItem'> = localStorage): Session | null {
   try {
     const parsed: unknown = JSON.parse(storage.getItem(KEY) ?? 'null');
-    return isSession(parsed) ? parsed : null;
+    // A sign-in saved before people existed used the device name as the person.
+    const session =
+      typeof parsed === 'object' && parsed !== null && typeof (parsed as Record<string, unknown>)['person'] !== 'string'
+        ? { ...parsed, person: (parsed as Record<string, unknown>)['deviceName'] }
+        : parsed;
+    return isSession(session) ? session : null;
   } catch {
     return null;
   }

@@ -62,17 +62,26 @@ describe('Welcome', () => {
     const { api, onSignedIn, root } = setup();
     await type(root, 0, 'Victor');
     await submit(root);
-    expect(api.createHousehold).toHaveBeenCalledWith('Victor');
-    expect(onSignedIn).toHaveBeenCalledWith({ ...creds, deviceName: 'Victor' });
+    expect(api.createHousehold).toHaveBeenCalledWith('iPhone', 'Victor');
+    expect(onSignedIn).toHaveBeenCalledWith({ ...creds, deviceName: 'iPhone', person: 'Victor' });
     expect(localStorage.getItem('grocery.theme')).toBe('dark');
   });
 
-  it('joins with a pasted link and starts that device in light', async () => {
-    const { api, root } = setup();
-    await type(root, 0, 'Yara');
-    await type(root, 1, 'https://u.github.io/Grocery/#join=abc_DEF-1234567');
+  it('asks for a name before creating a household', async () => {
+    const { api, onSignedIn, root } = setup();
     await submit(root);
-    expect(api.join).toHaveBeenCalledWith('abc_DEF-1234567', 'Yara');
+    expect(root.querySelector('.error')?.textContent).toBe('Enter your name');
+    expect(api.createHousehold).not.toHaveBeenCalled();
+    expect(onSignedIn).not.toHaveBeenCalled();
+  });
+
+  it('joins with a pasted link, hides the name box, leaves the person empty and starts that device in light', async () => {
+    const { api, root, onSignedIn } = setup();
+    await type(root, 1, 'https://u.github.io/Grocery/#join=abc_DEF-1234567');
+    expect(root.querySelectorAll('input')).toHaveLength(1); // only the paste box: the person is picked after signing in
+    await submit(root);
+    expect(api.join).toHaveBeenCalledWith('abc_DEF-1234567', 'iPhone');
+    expect(onSignedIn).toHaveBeenCalledWith({ ...creds, deviceName: 'iPhone', person: '' });
     expect(api.createHousehold).not.toHaveBeenCalled();
     expect(localStorage.getItem('grocery.theme')).toBe('light');
   });
@@ -89,13 +98,14 @@ describe('Welcome', () => {
 
   it('uses the invite code from the link and shows no paste box', async () => {
     const { api, root } = setup('abc_DEF-1234567');
-    expect(root.querySelectorAll('input')).toHaveLength(1);
+    expect(root.querySelectorAll('input')).toHaveLength(0);
     await submit(root);
     expect(api.join).toHaveBeenCalledWith('abc_DEF-1234567', 'iPhone');
   });
 
   it('explains a 409 and lets the user try again', async () => {
     const { root, onSignedIn } = setup(null, { createHousehold: vi.fn().mockRejectedValue(new ApiError(409, 'x')) });
+    await type(root, 0, 'Victor');
     await submit(root);
     expect(root.querySelector('.error')?.textContent).toContain('already set up');
     expect(onSignedIn).not.toHaveBeenCalled();
@@ -108,12 +118,11 @@ describe('Welcome', () => {
       (root.querySelector('.link-btn') as HTMLElement).click();
     });
     expect(root.textContent).toContain('Get back in');
-    await type(root, 0, 'New phone');
-    await type(root, 1, ' rec_abcDEF-123456789 ');
+    await type(root, 0, ' rec_abcDEF-123456789 ');
     await submit(root);
-    expect(api.recover).toHaveBeenCalledWith('rec_abcDEF-123456789', 'New phone');
+    expect(api.recover).toHaveBeenCalledWith('rec_abcDEF-123456789', 'iPhone');
     expect(api.createHousehold).not.toHaveBeenCalled();
-    expect(onSignedIn).toHaveBeenCalledWith({ ...creds, deviceName: 'New phone' });
+    expect(onSignedIn).toHaveBeenCalledWith({ ...creds, deviceName: 'iPhone', person: '' });
     expect(localStorage.getItem('grocery.theme')).toBeNull();
   });
 
@@ -140,11 +149,11 @@ describe('Welcome', () => {
     await act(() => {
       (root.querySelector('.link-btn') as HTMLElement).click();
     });
-    await type(root, 1, 'nope');
+    await type(root, 0, 'nope');
     await submit(root);
     expect(root.querySelector('.error')?.textContent).toContain("doesn't look like a recovery code");
     expect(api.recover).not.toHaveBeenCalled();
-    await type(root, 1, 'rec_abcDEF-123456789');
+    await type(root, 0, 'rec_abcDEF-123456789');
     await submit(root);
     expect(root.querySelector('.error')?.textContent).toContain("isn't valid");
     expect(onSignedIn).not.toHaveBeenCalled();
@@ -158,16 +167,15 @@ describe('scanning a QR invite', () => {
 
   it('fills the invite box from a scanned code, then Join signs in with it', async () => {
     const { api, root, onSignedIn } = setup();
-    await type(root, 0, 'Yara');
     await click(scanButton(root) ?? null);
     expect(root.querySelector('.scanner')).not.toBeNull();
     await click(root.querySelector('#found'));
     expect(root.querySelector('.scanner')).toBeNull();
-    expect((root.querySelectorAll('input')[1] as HTMLInputElement).value).toBe('Xk3F9xQ2mZ7vB1nTa8LcW5yRd0HeJ4uG');
+    expect((root.querySelectorAll('input')[0] as HTMLInputElement).value).toBe('Xk3F9xQ2mZ7vB1nTa8LcW5yRd0HeJ4uG');
     expect(root.textContent).toContain('Invite found. Tap Join.');
     expect(root.querySelector('button.primary')?.textContent).toBe('Join');
     await submit(root);
-    expect(api.join).toHaveBeenCalledWith('Xk3F9xQ2mZ7vB1nTa8LcW5yRd0HeJ4uG', 'Yara');
+    expect(api.join).toHaveBeenCalledWith('Xk3F9xQ2mZ7vB1nTa8LcW5yRd0HeJ4uG', 'iPhone');
     expect(api.createHousehold).not.toHaveBeenCalled();
     expect(onSignedIn).toHaveBeenCalled();
   });
@@ -176,6 +184,7 @@ describe('scanning a QR invite', () => {
     const { root } = setup();
     await type(root, 1, 'hello th');
     expect(root.textContent).not.toContain('Invite found');
+    expect(root.querySelectorAll('input')).toHaveLength(2); // junk in the paste box does not hide the name box
     await type(root, 1, 'https://vinblue1977.github.io/Grocery/#join=Xk3F9xQ2mZ7vB1nTa8LcW5yRd0HeJ4uG');
     expect(root.textContent).toContain('Invite found. Tap Join.');
   });

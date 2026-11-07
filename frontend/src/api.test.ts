@@ -128,7 +128,7 @@ describe('pasted invites', () => {
 });
 
 describe('session storage', () => {
-  const session = { token: 't', householdId: 'h', deviceId: 'd', deviceName: 'n' };
+  const session = { token: 't', householdId: 'h', deviceId: 'd', deviceName: 'n', person: 'p' };
 
   it('saves, loads and clears', () => {
     const store = new Map<string, string>();
@@ -141,6 +141,11 @@ describe('session storage', () => {
     expect(loadSession(storage)).toEqual(session);
     clearSession(storage);
     expect(loadSession(storage)).toBeNull();
+  });
+
+  it('treats a sign-in saved before people existed as that person: the device name', () => {
+    const old = { token: 't', householdId: 'h', deviceId: 'd', deviceName: 'Yara' };
+    expect(loadSession({ getItem: () => JSON.stringify(old) })).toEqual({ ...old, person: 'Yara' });
   });
 
   it('keeps going when storage refuses the write', () => {

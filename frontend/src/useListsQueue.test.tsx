@@ -12,7 +12,7 @@ const snap = (): Snapshot => ({
   items: [{ id: 'milk', storeId: 'c', name: 'Milk', note: '', checked: false, addedBy: 'Yara', updatedAt: 1 }],
   frequent: [],
 });
-const session = { token: 't', householdId: 'h1', deviceId: 'd', deviceName: 'Victor' };
+const session = { token: 't', householdId: 'h1', deviceId: 'd', deviceName: 'iPhone', person: 'Victor' };
 const settle = () =>
   act(async () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 0));

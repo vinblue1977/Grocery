@@ -31,9 +31,9 @@ def _json_body(event: dict[str, Any]) -> dict[str, Any]:
     return body if isinstance(body, dict) else {}
 
 
-def _device_name(table: Any, session: Session) -> str:
+def _added_by(table: Any, session: Session) -> str:
     device = households.get_device(table, session)
-    return str(device["name"]) if device else "Someone"
+    return (households.person_of(device) if device else "") or "Someone"
 
 
 def _authed(table: Any, method: str, path: str, body: dict[str, Any], session: Session) -> dict[str, Any]:
@@ -60,11 +60,28 @@ def _route(
         device = households.get_device(table, session)
         if device is None:
             return _response(401, {"error": "sign in required"})
-        return _response(200, {"householdId": session.household_id, "deviceId": session.device_id, "deviceName": device["name"]})
+        return _response(
+            200,
+            {
+                "householdId": session.household_id,
+                "deviceId": session.device_id,
+                "deviceName": device["name"],
+                "person": households.person_of(device),
+            },
+        )
     if (method, path) == ("POST", "/invites"):
         return _response(201, households.create_invite(table, session))
     if (method, path) == ("POST", "/recovery"):
         return _response(201, households.create_recovery(table, session))
+    if (method, path) == ("GET", "/people"):
+        return _response(200, {"people": households.list_people(table, session)})
+    if (method, path) == ("PUT", "/me/person"):
+        try:
+            return _response(200, households.set_person(table, session, body.get("name")))
+        except households.NotFound:
+            return _response(401, {"error": "sign in required"})
+        except households.InvalidName:
+            return _response(400, {"error": "a name is required"})
     if (method, path) == ("GET", "/devices"):
         return _response(200, {"devices": households.list_devices(table, session)})
     if route == ("DELETE", "devices", 2):
@@ -102,9 +119,9 @@ def _route(
             200, lists.set_frequent(table, session, body.get("storeId"), body.get("name"), body.get("pinned"), body.get("hidden"))
         )
     if (method, path) == ("POST", "/items/bulk"):
-        return _response(201, lists.add_items(table, session, body.get("items"), _device_name(table, session)))
+        return _response(201, lists.add_items(table, session, body.get("items"), _added_by(table, session)))
     if (method, path) == ("POST", "/items"):
-        added_by = _device_name(table, session)
+        added_by = _added_by(table, session)
         item, created = lists.add_item(
             table, session, body.get("storeId"), body.get("name"), body.get("note"), added_by, body.get("id")
         )
@@ -126,7 +143,8 @@ def handler(event: dict[str, Any], _context: object) -> dict[str, Any]:
     if (method, path) == ("POST", "/household"):
         body = _json_body(event)
         try:
-            return _response(201, households.create_household(table, households.clean_name(body.get("deviceName"), "Device")))
+            device_name = households.clean_name(body.get("deviceName"), "Device")
+            return _response(201, households.create_household(table, device_name, households.clean_name(body.get("person"), "")))
         except households.HouseholdExists:
             return _response(409, {"error": "this app already has a household: paste an invite link or code instead"})
     if (method, path) == ("POST", "/join"):

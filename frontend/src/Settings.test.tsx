@@ -5,7 +5,7 @@ import type { Api } from './api';
 import { Settings } from './Settings';
 import type { ListsState } from './useLists';
 
-const session = { token: 't', householdId: 'h', deviceId: 'd', deviceName: 'Victor' };
+const session = { token: 't', householdId: 'h', deviceId: 'd', deviceName: 'iPhone', person: 'Victor' };
 const flush = () =>
   act(async () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -20,7 +20,7 @@ async function setup(createRecovery = vi.fn().mockResolvedValue({ code: 'rec_sec
   const root = document.createElement('div');
   document.body.append(root);
   act(() => {
-    render(<Settings api={api} lists={{ data: null } as unknown as ListsState} session={session} onSignedOut={vi.fn()} onRenamed={vi.fn()} onBack={vi.fn()} />, root);
+    render(<Settings api={api} lists={{ data: null } as unknown as ListsState} session={session} onSignedOut={vi.fn()} onRenamed={vi.fn()} onPersonChanged={vi.fn()} onBack={vi.fn()} />, root);
   });
   await flush();
   const button = (text: string) => [...root.querySelectorAll('button')].find((b) => b.textContent?.includes(text)) as HTMLButtonElement;
@@ -78,7 +78,7 @@ describe('invite card', () => {
     const root = document.createElement('div');
     document.body.append(root);
     act(() => {
-      render(<Settings api={api} lists={{ data: null } as unknown as ListsState} session={session} onSignedOut={vi.fn()} onRenamed={vi.fn()} onBack={vi.fn()} />, root);
+      render(<Settings api={api} lists={{ data: null } as unknown as ListsState} session={session} onSignedOut={vi.fn()} onRenamed={vi.fn()} onPersonChanged={vi.fn()} onBack={vi.fn()} />, root);
     });
     await flush();
     expect(root.querySelector('svg.qr')).toBeNull();

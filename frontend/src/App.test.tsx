@@ -2,9 +2,9 @@ import { render } from 'preact';
 import { act } from 'preact/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Api } from './api';
-import { Signed } from './App';
+import { App, Signed } from './App';
 
-const session = { token: 't', householdId: 'h', deviceId: 'd', deviceName: 'Victor' };
+const session = { token: 't', householdId: 'h', deviceId: 'd', deviceName: 'iPhone', person: 'Victor' };
 const flush = () =>
   act(async () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -64,5 +64,46 @@ describe('navigation', () => {
     });
     expect(back).toHaveBeenCalled();
     back.mockRestore();
+  });
+});
+
+describe('signing in on a new device', () => {
+  it('asks who you are before showing the lists, until a person is picked', async () => {
+    localStorage.setItem('grocery.session', JSON.stringify({ ...session, person: '' }));
+    const root = document.createElement('div');
+    document.body.append(root);
+    await act(() => {
+      render(<App />, root);
+    });
+    await flush();
+    expect(root.textContent).toContain('Who are you?');
+    expect(root.querySelector('[aria-label="Settings"]')).toBeNull();
+    localStorage.clear();
+  });
+});
+
+describe('the name of the person', () => {
+  const run = async (person: string) => {
+    localStorage.setItem('grocery.session', JSON.stringify(session));
+    const api = {
+      me: vi.fn().mockResolvedValue({ householdId: 'h', deviceId: 'd', deviceName: 'iPhone', person }),
+      sync: vi.fn().mockResolvedValue({ stores: [], items: [], frequent: [] }),
+    } as unknown as Api;
+    const root = document.createElement('div');
+    document.body.append(root);
+    await act(() => {
+      render(<App api={api} />, root);
+    });
+    await flush();
+    return JSON.parse(localStorage.getItem('grocery.session') ?? '{}') as { person: string };
+  };
+  afterEach(() => localStorage.clear());
+
+  it('follows a change made on another device of the same person', async () => {
+    expect((await run('Vic')).person).toBe('Vic');
+  });
+
+  it('keeps the saved name when the server agrees', async () => {
+    expect((await run('Victor')).person).toBe('Victor');
   });
 });

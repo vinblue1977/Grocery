@@ -40,7 +40,8 @@ export function Welcome({ api, joinCode, onSignedIn }: Props) {
 
   const submit = async (event: Event) => {
     event.preventDefault();
-    const deviceName = name.trim() || defaultName();
+    const deviceName = defaultName(); // renamed later in Settings; who uses the device is a separate question
+    const person = name.trim();
     if (recovering) {
       const recoveryInput = recoveryCode.trim();
       if (!/^rec_[\w-]{8,100}$/.test(recoveryInput)) {
@@ -51,7 +52,7 @@ export function Welcome({ api, joinCode, onSignedIn }: Props) {
       setError('');
       try {
         onSignedIn(
-          toSession(await api.recover(recoveryInput, deviceName), deviceName),
+          toSession(await api.recover(recoveryInput, deviceName), deviceName), // a recovered device picks its person next
         ); // keeps this device's theme choice
       } catch (err) {
         setError(
@@ -72,16 +73,20 @@ export function Welcome({ api, joinCode, onSignedIn }: Props) {
       setError("That doesn't look like an invite link or code");
       return;
     }
+    if (!code && !person) {
+      setError('Enter your name');
+      return;
+    }
     setBusy(true);
     setError('');
     try {
       const creds = code
         ? await api.join(code, deviceName)
-        : await api.createHousehold(deviceName);
+        : await api.createHousehold(deviceName, person);
       const initialTheme = code ? 'light' : 'dark';
       savePref(initialTheme);
       applyTheme(initialTheme);
-      onSignedIn(toSession(creds, deviceName));
+      onSignedIn(toSession(creds, deviceName, code ? '' : person)); // a joined device picks its person next
     } catch (err) {
       setError(
         looksLikeRecovery && err instanceof ApiError && err.status === 404
@@ -122,9 +127,9 @@ export function Welcome({ api, joinCode, onSignedIn }: Props) {
         </strong>
         <p class="muted">
           {recovering
-            ? 'Enter the recovery code you saved and a name for this device.'
+            ? 'Enter the recovery code you saved.'
             : joinCode
-              ? 'You were invited. Name this device and you stay signed in.'
+              ? 'You were invited. Tap Join and you stay signed in.'
               : 'You sign in once on this device. Invite your partner from Settings afterwards.'}
         </p>
         {!joinCode && !pasted && isIos() && !isHomeScreenApp() && (
@@ -134,15 +139,17 @@ export function Welcome({ api, joinCode, onSignedIn }: Props) {
             separate from Safari.
           </p>
         )}
-        <label class="field">
-          <span class="muted">Your name</span>
-          <input
-            value={name}
-            maxLength={40}
-            placeholder="e.g. Victor"
-            onInput={(e) => setName(e.currentTarget.value)}
-          />
-        </label>
+        {!joinCode && !recovering && !parseInviteInput(pasted) && (
+          <label class="field">
+            <span class="muted">Your name</span>
+            <input
+              value={name}
+              maxLength={40}
+              placeholder="e.g. Victor"
+              onInput={(e) => setName(e.currentTarget.value)}
+            />
+          </label>
+        )}
         {recovering && (
           <label class="field">
             <span class="muted">Recovery code</span>

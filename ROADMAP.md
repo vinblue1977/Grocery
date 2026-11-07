@@ -18,6 +18,7 @@ Ideas for the Grocery app, roughly in the order to do them. Everything stays on 
 - Fun touches: emojis on items, a celebration when the list is done, avatars, toasts when the other person adds items, greetings
 - Settings cards for invites and the recovery code start collapsed; the Home Screen icon is dark
 - Hardening: CodeQL is a required check on `main`, the public function URL is capped at 10 concurrent requests, and the repo history has no real name or email (new commits use the GitHub no-reply address)
+- People, not devices: each device has a name and a person; a phone that joins or recovers asks "Who are you?"; items show the person; "You" card in Settings to change your name
 - Checked on a real iPhone: offline edit and replay, and the paper-list scan on a handwritten list
 
 ## Next
@@ -29,7 +30,6 @@ Ideas for the Grocery app, roughly in the order to do them. Everything stays on 
 
 ## Soon
 
-- **Show people's names, not device names.** Items say "Yara"; separate the person from the device in Settings, so a new phone doesn't become a new person.
 - **Avatar colors for your own names.** The fixed colors for the two household members were keyed to their real names and dropped when the history was cleaned; let each person pick a color in Settings instead.
 - **Update banner.** The Home Screen app keeps a cached copy, so a new version shows only on the second launch; say "New version, tap to reload".
 - **Offline edge cases.** A replayed edit that arrives after its item was deleted re-creates the item (needs tombstones); the "could not be saved" message under-counts if more edits are dropped while it shows (and should have `role="alert"`); a suggestion you removed can't be restored.

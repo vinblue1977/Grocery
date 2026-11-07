@@ -106,7 +106,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
     const before = seen.current;
     seen.current = serverSnapshot.items;
     if (!before) return;
-    const arrival = arrivalFromOthers(before, serverSnapshot.items, session.deviceName);
+    const arrival = arrivalFromOthers(before, serverSnapshot.items, session.person);
     if (!arrival) return;
     const store = serverSnapshot.stores.find((s) => s.id === arrival.storeId)?.name ?? 'the list';
     const where = arrival.storeCount === 1 ? ` to ${store}` : '';
@@ -116,7 +116,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
     freshTimer.current = setTimeout(() => setFresh([]), FRESH_MS);
   }, [serverSnapshot]);
 
-  const hi = greeting(new Date().getHours(), session.deviceName);
+  const hi = greeting(new Date().getHours(), session.person);
   const header = (
     <header class="top">
       <div>
@@ -172,8 +172,8 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
     setCleared(null);
     clearTimeout(clearedTimer.current);
     void mutate(
-      (d) => withNewItem(d, id, storeId, clean, session.deviceName),
-      { kind: 'addItem', id, storeId, name: clean, addedBy: session.deviceName },
+      (d) => withNewItem(d, id, storeId, clean, session.person),
+      { kind: 'addItem', id, storeId, name: clean, addedBy: session.person },
     );
   };
 
