@@ -111,7 +111,7 @@ def test_clear_checked_only_removes_ticked_items_in_that_store(me):
     call("PATCH", f"/items/{done['id']}", {"checked": True}, me["token"])
     call("PATCH", f"/items/{other['id']}", {"checked": True}, me["token"])
     status, body = call("POST", f"/stores/{costco}/clear", token=me["token"])
-    assert (status, body) == (200, {"removed": 1})
+    assert (status, body) == (200, {"removed": 1, "resting": 0})
     assert {i["id"] for i in sync(me)["items"]} == {todo["id"], other["id"]}
 
 
@@ -445,3 +445,68 @@ def test_moving_to_a_store_that_does_not_exist_is_refused(me):
     for bad in ("nope", None, 7, ["x"]):
         assert call("PATCH", f"/items/{item['id']}", {"storeId": bad}, me["token"])[0] == 400
     assert sync(me)["items"][0]["storeId"] == costco
+
+
+def patch(me, item, **changes):
+    return call("PATCH", f"/items/{item['id']}", changes, me["token"])
+
+
+def test_an_item_can_be_set_to_repeat_and_only_to_the_offered_intervals(me):
+    item = add(me, store_id(me, "Costco"), "Milk")
+    assert (item["repeatDays"], item["returnsAt"]) == (0, 0)
+    status, body = patch(me, item, repeatDays=7)
+    assert (status, body["repeatDays"], body["returnsAt"]) == (200, 7, 0)
+    for bad in (3, -1, "7", None, True, 7.5):
+        assert patch(me, item, repeatDays=bad)[0] == 400
+    assert patch(me, item, repeatDays=0)[1]["repeatDays"] == 0
+
+
+def test_done_shopping_deletes_normal_items_and_rests_repeating_ones(me):
+    costco = store_id(me, "Costco")
+    milk, eggs = add(me, costco, "Milk"), add(me, costco, "Eggs")
+    patch(me, milk, repeatDays=7)
+    for item in (milk, eggs):
+        patch(me, item, checked=True)
+    status, body = call("POST", f"/stores/{costco}/clear", token=me["token"])
+    assert (status, body) == (200, {"removed": 1, "resting": 1})
+    [rest] = sync(me)["items"]
+    assert (rest["name"], rest["checked"], rest["repeatDays"]) == ("Milk", False, 7)
+    assert rest["returnsAt"] > sync(me)["now"] + 6 * 86_400_000  # about a week from now
+
+
+def test_a_resting_item_comes_back_when_its_interval_is_over_and_can_be_brought_back_early(me, table):
+    costco = store_id(me, "Costco")
+    milk = add(me, costco, "Milk")
+    patch(me, milk, repeatDays=7)
+    assert patch(me, milk, resting=True)[1]["returnsAt"] > 0
+    assert sync(me)["items"][0]["returnsAt"] > 0  # still resting
+    key = {"PK": f"H#{me['householdId']}", "SK": f"ITEM#{milk['id']}"}
+    table.update_item(Key=key, UpdateExpression="SET boughtAt = :t", ExpressionAttributeValues={":t": 1})  # long ago
+    [back] = sync(me)["items"]
+    assert (back["returnsAt"], back["checked"], back["repeatDays"]) == (0, False, 7)
+    assert "boughtAt" not in table.get_item(Key=key)["Item"]  # stored, so the other phone sees it too
+    assert patch(me, milk, resting=True)[0] == 200
+    assert patch(me, milk, resting=False)[1]["returnsAt"] == 0  # "Add now"
+
+
+def test_resting_needs_a_repeat_and_a_boolean(me):
+    item = add(me, store_id(me, "Costco"), "Milk")
+    assert patch(me, item, resting=True)[0] == 400  # does not repeat
+    assert patch(me, item, repeatDays=7, resting="yes")[0] == 400
+
+
+def test_changing_the_interval_of_a_resting_item_moves_its_return_day(me):
+    item = add(me, store_id(me, "Costco"), "Milk")
+    patch(me, item, repeatDays=7)
+    week = patch(me, item, resting=True)[1]["returnsAt"]
+    month = patch(me, item, repeatDays=30)[1]["returnsAt"]
+    assert month - week == 23 * 86_400_000
+
+
+def test_a_scan_adds_an_item_that_is_resting_instead_of_skipping_it(me):
+    costco = store_id(me, "Costco")
+    milk = add(me, costco, "Milk")
+    patch(me, milk, repeatDays=7)
+    patch(me, milk, resting=True)
+    status, body = call("POST", "/items/bulk", {"items": [{"name": "milk", "storeId": costco}]}, me["token"])
+    assert (status, body) == (201, {"added": 1, "skipped": 0})

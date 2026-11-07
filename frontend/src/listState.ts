@@ -1,11 +1,21 @@
-import type { Frequent, Item, Snapshot, Store } from './api';
+import type { Frequent, Item, ItemUpdate, Snapshot, Store } from './api';
 import type { Op } from './queue';
 
 /** Pure helpers: what the screen shows, and the instant (optimistic) edits applied before the server answers. */
 
-export function forStore(items: Item[], storeId: string): { toBuy: Item[]; inCart: Item[] } {
+export const DAY_MS = 86_400_000;
+
+/** A bought repeating item that is waiting for its day to come back; it is not on the list until then. */
+export const isResting = (item: Item): boolean => (item.returnsAt ?? 0) > 0;
+
+export function forStore(items: Item[], storeId: string): { toBuy: Item[]; inCart: Item[]; resting: Item[] } {
   const mine = items.filter((item) => item.storeId === storeId);
-  return { toBuy: mine.filter((item) => !item.checked), inCart: mine.filter((item) => item.checked) };
+  const active = mine.filter((item) => !isResting(item));
+  return {
+    toBuy: active.filter((item) => !item.checked),
+    inCart: active.filter((item) => item.checked),
+    resting: mine.filter(isResting).sort((a, b) => (a.returnsAt ?? 0) - (b.returnsAt ?? 0) || a.name.localeCompare(b.name)),
+  };
 }
 
 export function pickStore(stores: Store[], wanted: string | null): string | null {
@@ -26,16 +36,37 @@ export function withChecked(data: Snapshot, id: string, checked: boolean): Snaps
   return { ...data, items: data.items.map((item) => (item.id === id ? { ...item, checked } : item)) };
 }
 
-export function withEditedItem(data: Snapshot, id: string, changes: { name?: string; note?: string; storeId?: string }): Snapshot {
-  return { ...data, items: data.items.map((item) => (item.id === id ? { ...item, ...changes } : item)) };
+/** The instant version of an item update, including the rest and the interval, which the server turns into a return day. */
+export function withItemUpdate(data: Snapshot, id: string, changes: ItemUpdate, now: number): Snapshot {
+  const { resting, ...fields } = changes;
+  const edit = (item: Item): Item => {
+    let next: Item = { ...item, ...fields };
+    if (resting === true && (next.repeatDays ?? 0) > 0) next = { ...next, checked: false, returnsAt: now + (next.repeatDays ?? 0) * DAY_MS };
+    else if (resting === false) next = { ...next, returnsAt: 0 };
+    else if (fields.repeatDays !== undefined && isResting(item)) {
+      next = { ...next, returnsAt: (item.returnsAt ?? 0) - (item.repeatDays ?? 0) * DAY_MS + fields.repeatDays * DAY_MS };
+    }
+    return next;
+  };
+  return { ...data, items: data.items.map((item) => (item.id === id ? edit(item) : item)) };
+}
+
+export function withEditedItem(data: Snapshot, id: string, changes: ItemUpdate): Snapshot {
+  return withItemUpdate(data, id, changes, Date.now());
 }
 
 export function withoutItem(data: Snapshot, id: string): Snapshot {
   return { ...data, items: data.items.filter((item) => item.id !== id) };
 }
 
-export function withoutChecked(data: Snapshot, storeId: string): Snapshot {
-  return { ...data, items: data.items.filter((item) => item.storeId !== storeId || !item.checked) };
+/** Done shopping: bought items go, except repeating ones, which rest until their interval is over. */
+export function withoutChecked(data: Snapshot, storeId: string, now = Date.now()): Snapshot {
+  const items = data.items.flatMap((item): Item[] => {
+    if (item.storeId !== storeId || !item.checked || isResting(item)) return [item];
+    const days = item.repeatDays ?? 0;
+    return days > 0 ? [{ ...item, checked: false, returnsAt: now + days * DAY_MS }] : [];
+  });
+  return { ...data, items };
 }
 
 export function withoutStore(data: Snapshot, id: string): Snapshot {
@@ -98,9 +129,7 @@ export function applyOp(data: Snapshot, op: Op): Snapshot {
       return op.note ? { ...added, items: added.items.map((i) => (i.id === op.id ? { ...i, note: op.note ?? '' } : i)) } : added;
     }
     case 'updateItem':
-      return op.changes.name === undefined && op.changes.note === undefined && op.changes.checked !== undefined
-        ? withChecked(data, op.id, op.changes.checked)
-        : { ...data, items: data.items.map((i) => (i.id === op.id ? { ...i, ...op.changes } : i)) };
+      return withItemUpdate(data, op.id, op.changes, Date.now());
     case 'deleteItem':
       return withoutItem(data, op.id);
     case 'clearChecked':

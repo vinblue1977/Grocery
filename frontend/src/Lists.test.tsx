@@ -1,7 +1,7 @@
 import { render } from 'preact';
 import { act } from 'preact/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, type Api, type Snapshot } from './api';
+import { ApiError, type Api, type Item, type Snapshot } from './api';
 import { Lists } from './Lists';
 
 vi.mock('./scan', () => ({ shrinkPhoto: vi.fn().mockResolvedValue('BASE64') }));
@@ -430,6 +430,83 @@ describe('Lists screen', () => {
       await click(button(root, 'Done shopping'));
       await tick(6100);
       expect(api.clearChecked).toHaveBeenCalledWith('c');
+    });
+  });
+
+  describe('recurring items', () => {
+    const WEEK = 7 * 86_400_000;
+    const itemsWith = (extra: Item[]) => ({ ...snapshot(), items: [...snapshot().items, ...extra] });
+    const mk = (id: string, name: string, over: Partial<Item>): Item => ({ id, storeId: 'c', name, note: '', checked: false, addedBy: 'Victor', updatedAt: 9, ...over });
+    const open = async (extra: Item[]) => {
+      vi.useFakeTimers();
+      api.sync = vi.fn().mockResolvedValue(itemsWith(extra));
+      const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      return root;
+    };
+    const tick = (ms: number) =>
+      act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+    const button = (root: HTMLElement, label: string) => Array.from(root.querySelectorAll('button')).find((b) => b.textContent === label) ?? null;
+
+    it('marks an item that repeats with a ↻', async () => {
+      const root = await open([mk('tea', 'Tea', { repeatDays: 7 })]);
+      expect(root.querySelector('[aria-label="Repeats weekly"]')?.textContent).toBe('↻');
+      expect(root.querySelectorAll('[aria-label^="Repeats"]')).toHaveLength(1);
+    });
+
+    it('Done shopping rests repeating items, says so, and keeps them under Coming back', async () => {
+      const root = await open([mk('oats', 'Oats', { repeatDays: 7, checked: true })]);
+      let served = itemsWith([mk('oats', 'Oats', { repeatDays: 7, checked: true })]); // what the server answers once the clear lands
+      api.sync = vi.fn().mockImplementation(() => Promise.resolve(served));
+      api.clearChecked = vi.fn().mockImplementation(async () => {
+        served = {
+          ...served,
+          items: served.items.filter((i) => !i.checked || i.repeatDays).map((i) => (i.repeatDays ? { ...i, checked: false, returnsAt: Date.now() + WEEK } : i)),
+        };
+      });
+      await click(button(root, 'Done shopping'));
+      expect(root.querySelector('.toast')?.textContent).toContain('2 items bought · 1 will come back');
+      expect(root.textContent).toContain('Coming back · 1');
+      expect(root.textContent).not.toContain('Oats'); // collapsed
+      await tick(6100);
+      expect(api.clearChecked).toHaveBeenCalledWith('c');
+      expect(root.textContent).toContain('Coming back · 1');
+    });
+
+    it('lists what is coming back with its day, and Add now puts it on the list', async () => {
+      const root = await open([mk('oats', 'Oats', { repeatDays: 7, returnsAt: Date.now() + WEEK })]);
+      expect(root.textContent).toContain('Coming back · 1');
+      expect(root.querySelector('[aria-label="Check off Oats"]')).toBeNull(); // not on the list
+      await click(button(root, 'Show ›'));
+      expect(root.textContent).toContain('weekly');
+      await click(root.querySelector('[aria-label="Add Oats now"]'));
+      expect(api.updateItem).toHaveBeenCalledWith('oats', { resting: false });
+      expect(root.querySelector('[aria-label="Check off Oats"]')).not.toBeNull();
+      expect(root.textContent).not.toContain('Coming back');
+    });
+
+    it('stopping the repeat of something already bought removes it for good', async () => {
+      const root = await open([mk('oats', 'Oats', { repeatDays: 7, returnsAt: Date.now() + WEEK })]);
+      await click(button(root, 'Show ›'));
+      await click(root.querySelector('[aria-label="Edit Oats"]'));
+      await click(Array.from(root.querySelectorAll('[aria-label=Repeat] button')).find((b) => b.textContent === 'Off') ?? null);
+      await click(root.querySelector('.sheet button[type=submit]'));
+      expect(api.deleteItem).toHaveBeenCalledWith('oats');
+      expect(root.querySelector('.toast')?.textContent).toContain('Oats will not come back');
+      expect(root.textContent).not.toContain('Coming back');
+    });
+
+    it('sets an item to repeat from the edit sheet', async () => {
+      const root = await open([]);
+      await click(root.querySelector('[aria-label="Edit Milk"]'));
+      await click(Array.from(root.querySelectorAll('[aria-label=Repeat] button')).find((b) => b.textContent === 'Monthly') ?? null);
+      await click(root.querySelector('.sheet button[type=submit]'));
+      expect(api.updateItem).toHaveBeenCalledWith('milk', { repeatDays: 30 });
+      expect(root.querySelector('[aria-label="Repeats monthly"]')).not.toBeNull();
     });
   });
 

@@ -112,3 +112,25 @@ describe('moving an item to another store', () => {
     expect(single.root.querySelector('[aria-label=Store]')).toBeNull();
   });
 });
+
+describe('repeat', () => {
+  const group = (root: HTMLElement) => [...root.querySelectorAll('[aria-label=Repeat] button')] as HTMLButtonElement[];
+
+  it('offers Off, Weekly, Every 2 weeks and Monthly with the current one selected', () => {
+    const { root } = setup();
+    expect(group(root).map((b) => b.textContent)).toEqual(['Off', 'Weekly', 'Every 2 weeks', 'Monthly']);
+    expect(group(root).find((b) => b.getAttribute('aria-pressed') === 'true')?.textContent).toBe('Off');
+  });
+
+  it('saves only the new interval, and Off again is no change', async () => {
+    const { root, submit, onSave } = setup();
+    await act(() => group(root)[1]?.click());
+    await submit();
+    expect(onSave).toHaveBeenCalledWith({ repeatDays: 7 });
+    document.body.replaceChildren();
+    const again = setup();
+    await act(() => group(again.root)[3]?.click());
+    await act(() => group(again.root)[0]?.click());
+    expect((again.root.querySelector('button[type=submit]') as HTMLButtonElement).disabled).toBe(true);
+  });
+});

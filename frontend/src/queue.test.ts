@@ -6,6 +6,7 @@ const ops: Op[] = [
   { kind: 'addItem', id: 'i1', storeId: 's1', name: 'Tea', note: 'green' },
   { kind: 'updateItem', id: 'i1', changes: { checked: true } },
   { kind: 'updateItem', id: 'i1', changes: { storeId: 's2', note: '2' } }, // a move to another store
+  { kind: 'updateItem', id: 'i1', changes: { repeatDays: 7, resting: true } }, // a repeating item bought
   { kind: 'setFrequent', storeId: 's1', name: 'Tea', changes: { pinned: true } },
 ];
 const blocked = () => {

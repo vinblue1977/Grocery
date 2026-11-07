@@ -31,7 +31,14 @@ export interface Item {
   checked: boolean;
   addedBy: string;
   updatedAt: number;
+  /** Days between purchases (7, 14 or 30), or 0 for an item that does not repeat. Older servers send neither field. */
+  repeatDays?: number;
+  /** When a bought repeating item comes back (milliseconds), or 0 while it is on the list. */
+  returnsAt?: number;
 }
+
+/** What can change on an item. `resting: true` sends a bought repeating item to rest; `false` brings it back now. */
+export type ItemUpdate = Partial<Pick<Item, 'checked' | 'name' | 'note' | 'storeId' | 'repeatDays'>> & { resting?: boolean };
 
 export interface ScannedItem {
   name: string;
@@ -88,7 +95,7 @@ export interface Api {
   clearChecked(storeId: string): Promise<void>;
   setFrequent(storeId: string, name: string, changes: { pinned?: boolean; hidden?: boolean }): Promise<unknown>;
   addItem(storeId: string, name: string, note?: string, id?: string): Promise<Item>;
-  updateItem(id: string, changes: Partial<Pick<Item, 'checked' | 'name' | 'note' | 'storeId'>>): Promise<Item>;
+  updateItem(id: string, changes: ItemUpdate): Promise<Item>;
   deleteItem(id: string): Promise<void>;
   scan(imageBase64: string): Promise<ScannedItem[]>;
   addItems(items: NewItem[]): Promise<{ added: number; skipped: number }>;
