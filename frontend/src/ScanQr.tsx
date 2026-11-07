@@ -54,21 +54,26 @@ export function ScanQr({ onCode, onCancel }: Props) {
         const canvas = document.createElement('canvas');
         timer = setInterval(() => {
           if (stopped || el.videoWidth === 0) return;
-          const scale = Math.min(1, MAX_FRAME_WIDTH / el.videoWidth);
-          canvas.width = Math.round(el.videoWidth * scale);
-          canvas.height = Math.round(el.videoHeight * scale);
-          const context = canvas.getContext('2d', { willReadFrequently: true });
-          if (!context) return;
-          context.drawImage(el, 0, 0, canvas.width, canvas.height);
-          const frame = context.getImageData(0, 0, canvas.width, canvas.height);
-          const found = decode(frame.data, frame.width, frame.height, { inversionAttempts: 'dontInvert' });
-          if (!found) return;
-          const code = parseInviteInput(found.data);
-          if (code) {
-            stop();
-            callbacks.current.onCode(code);
-          } else {
-            setMessage("That QR code isn't a Grocery invite. Ask for a new one.");
+          try {
+            const scale = Math.min(1, MAX_FRAME_WIDTH / el.videoWidth);
+            canvas.width = Math.round(el.videoWidth * scale);
+            canvas.height = Math.round(el.videoHeight * scale);
+            const context = canvas.getContext('2d', { willReadFrequently: true });
+            if (!context) return;
+            context.drawImage(el, 0, 0, canvas.width, canvas.height);
+            const frame = context.getImageData(0, 0, canvas.width, canvas.height);
+            const found = decode(frame.data, frame.width, frame.height, { inversionAttempts: 'dontInvert' });
+            if (!found) return;
+            const code = parseInviteInput(found.data);
+            if (code) {
+              stop();
+              callbacks.current.onCode(code);
+            } else {
+              setMessage("That QR code isn't a Grocery invite. Ask for a new one.");
+            }
+          } catch {
+            stop(); // a frame that can't be read (or decoded) means this camera won't work here
+            setFailed(true);
           }
         }, SCAN_INTERVAL_MS);
       } catch {

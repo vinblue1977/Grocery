@@ -172,7 +172,7 @@ export function Welcome({ api, joinCode, onSignedIn }: Props) {
             Scan a QR code from your partner's phone
           </button>
         )}
-        {!joinCode && !recovering && pasted && !error && (
+        {!joinCode && !recovering && !error && parseInviteInput(pasted) && (
           <p class="tip">Invite found. Tap Join.</p>
         )}
         {error && <p class="error">{error}</p>}
