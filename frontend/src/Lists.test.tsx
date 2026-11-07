@@ -750,4 +750,46 @@ describe('useLists', () => {
       expect(root.querySelector('.toast')?.textContent).toContain('Cleared 1 item');
     });
   });
+
+  describe('editing an item', () => {
+    const openEdit = async (root: HTMLElement, name = 'Milk') => {
+      await click(root.querySelector(`button[aria-label="Edit ${name}"]`));
+    };
+    const typeInto = (root: HTMLElement, index: number, value: string) =>
+      act(() => {
+        const box = root.querySelectorAll('.sheet.edit input')[index] as HTMLInputElement;
+        box.value = value;
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    const save = () =>
+      act(() => {
+        (document.querySelector('.sheet.edit form') as HTMLFormElement).dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+
+    it('tapping the name opens the sheet, and saving shows the new note at once and sends only the change', async () => {
+      const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+      await flush();
+      expect(root.querySelector('.sheet.edit')).toBeNull();
+      await openEdit(root);
+      expect((root.querySelectorAll('.sheet.edit input')[1] as HTMLInputElement).value).toBe('2 gal');
+      await typeInto(root, 1, '3 gal');
+      await save();
+      expect(root.querySelector('.sheet.edit')).toBeNull();
+      expect(root.textContent).toContain('3 gal');
+      await flush();
+      expect(api.updateItem).toHaveBeenCalledWith('milk', { note: '3 gal' });
+    });
+
+    it('closes the sheet if the other phone deletes the item meanwhile', async () => {
+      const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+      await flush();
+      await openEdit(root);
+      expect(root.querySelector('.sheet.edit')).not.toBeNull();
+      const without: Snapshot = { ...snapshot(), items: snapshot().items.filter((i) => i.id !== 'milk') };
+      (api.sync as ReturnType<typeof vi.fn>).mockResolvedValue(without);
+      document.dispatchEvent(new Event('visibilitychange')); // coming back to the app syncs at once
+      await flush();
+      expect(root.querySelector('.sheet.edit')).toBeNull();
+    });
+  });
 });

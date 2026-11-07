@@ -48,6 +48,7 @@ svg.qr { display: block; width: min(240px, 100%); margin: 12px auto; border-radi
 .sec { display: flex; justify-content: space-between; align-items: center; margin: 12px 2px 6px; color: var(--mut); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
 .it { display: flex; align-items: center; gap: 10px; background: var(--card); border-radius: 12px; padding: 8px 12px; margin-bottom: 6px; }
 .it .nm { flex: 1; min-width: 0; }
+.it button.nm { background: none; border: 0; padding: 0; color: inherit; text-align: left; font: inherit; }
 .it .by { color: var(--mut); font-size: 10px; }
 .it.done { opacity: 0.55; }
 .it.done .nm { text-decoration: line-through; }
@@ -79,6 +80,12 @@ svg.qr { display: block; width: min(240px, 100%); margin: 12px auto; border-radi
 .sheet select { background: var(--accl); color: var(--acc); border: 0; border-radius: 10px; padding: 6px 8px; font: inherit; font-size: 13px; max-width: 110px; }
 .sheet .primary { padding: 12px; border-radius: 12px; border: 0; background: var(--acc); color: var(--bg); font-weight: 600; font: inherit; }
 .sheet .primary:disabled { opacity: 0.5; }
+.scrim { position: fixed; inset: 0; background: #0009; z-index: 9; }
+.sheet.edit { inset: auto 0 0; }
+.sheet .stack { display: flex; flex-direction: column; gap: 8px; }
+.sheet .field { display: flex; flex-direction: column; gap: 4px; }
+.sheet .row { display: flex; gap: 8px; }
+.sheet .row > button { flex: 1; }
 .sheet .ghost { background: none; border: 0; color: var(--mut); font: inherit; padding: 8px; }
 .reading { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--mut); }
 .spin { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--acc); animation: spin 0.9s linear infinite; }

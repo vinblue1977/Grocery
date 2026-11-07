@@ -6,6 +6,7 @@ import {
   pickStore,
   suggestionsFor,
   withChecked,
+  withEditedItem,
   withNewItem,
   withNewStore,
   withoutChecked,
@@ -27,6 +28,14 @@ const data: Snapshot = {
 };
 
 describe('list state', () => {
+  it('edits only the given fields of one item, leaving the rest untouched', () => {
+    const edited = withEditedItem(data, 'milk', { note: '2 gal' });
+    expect(edited.items[0]).toMatchObject({ name: 'milk', note: '2 gal', checked: false });
+    expect(edited.items.slice(1)).toEqual(data.items.slice(1));
+    expect(withEditedItem(data, 'nope', { name: 'x' })).toEqual(data); // an item that is gone changes nothing
+    expect(data.items[0]?.note).toBe(''); // the original is not mutated
+  });
+
   it('splits a store into to-buy and in-cart', () => {
     const { toBuy, inCart } = forStore(data.items, 'c');
     expect(toBuy.map((i) => i.id)).toEqual(['milk']);

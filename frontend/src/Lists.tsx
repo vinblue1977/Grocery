@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Api, Item } from './api';
 import { Celebration } from './Celebration';
+import { EditSheet, type ItemChanges } from './EditSheet';
 import { emojiFor } from './emoji';
 import { newId } from './ids';
 import { arrivalFromOthers } from './news';
 import { avatarColor, firstWord, greeting, initial } from './people';
-import { forStore, isLastToBuy, nextStore, pickStore, suggestionsFor, withChecked, withNewItem, withNewStore, withoutChecked, withoutFrequent, withoutItem, withPinned } from './listState';
+import { forStore, isLastToBuy, nextStore, pickStore, suggestionsFor, withChecked, withNewItem, withNewStore, withoutChecked, withEditedItem, withoutFrequent, withoutItem, withPinned } from './listState';
 import type { Session } from './session';
 import { ScanSheet } from './ScanSheet';
 import type { ListsState } from './useLists';
@@ -55,6 +56,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
   const itemInput = useRef<HTMLInputElement>(null);
   const storeInput = useRef<HTMLInputElement>(null);
   const { data, serverSnapshot, error, mutate, pending, sending, offline, problem, dismissProblem } = lists;
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   // A store chosen when it was added but never created (the add was refused) must not linger as the remembered selection.
   const stores = data?.stores;
@@ -143,6 +145,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
   }
 
   const storeId = pickStore(data.stores, wanted);
+  const editingItem = editingId ? data.items.find((i) => i.id === editingId) : undefined; // gone if the other phone deleted it
   const { toBuy, inCart } = storeId ? forStore(data.items, storeId) : { toBuy: [], inCart: [] };
   const editing = editingOften && !text.trim(); // typing means adding, so Edit mode steps aside
   const storeLabel = data.stores.find((s) => s.id === storeId)?.name ?? '';
@@ -356,11 +359,11 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
                 <span class="em" aria-hidden="true">
                   {emojiFor(item.name)}
                 </span>
-                <span class="nm">
+                <button type="button" class="nm" aria-label={`Edit ${item.name}`} onClick={() => setEditingId(item.id)}>
                   {item.name}
                   {fresh.includes(item.id) && <b class="new">New</b>}
                   {item.note && <small class="muted"> {item.note}</small>}
-                </span>
+                </button>
                 <span class="av" role="img" aria-label={`Added by ${firstWord(item.addedBy)}`} title={item.addedBy} style={{ background: avatarColor(item.addedBy) }}>
                   {initial(item.addedBy)}
                 </span>
@@ -416,6 +419,16 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
           e.currentTarget.value = ''; // so choosing the same photo again still fires
         }}
       />
+      {editingItem && (
+        <EditSheet
+          key={editingItem.id}
+          item={editingItem}
+          onClose={() => setEditingId(null)}
+          onSave={(changes: ItemChanges) =>
+            void mutate((d) => withEditedItem(d, editingItem.id, changes), { kind: 'updateItem', id: editingItem.id, changes })
+          }
+        />
+      )}
       {photo && (
         <ScanSheet
           api={api}
