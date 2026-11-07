@@ -2,6 +2,7 @@ import { useState } from 'preact/hooks';
 import type { Api } from './api';
 import { ApiError, toSession } from './api';
 import { parseInviteInput } from './invite';
+import { ScanQr } from './ScanQr';
 import { applyTheme, savePref } from './theme';
 import type { Session } from './session';
 
@@ -32,6 +33,7 @@ export function Welcome({ api, joinCode, onSignedIn }: Props) {
   const [name, setName] = useState('');
   const [pasted, setPasted] = useState('');
   const [recovering, setRecovering] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [recoveryCode, setRecoveryCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -94,6 +96,19 @@ export function Welcome({ api, joinCode, onSignedIn }: Props) {
     }
   };
 
+  if (scanning) {
+    return (
+      <ScanQr
+        onCode={(code) => {
+          setPasted(code);
+          setError('');
+          setScanning(false);
+        }}
+        onCancel={() => setScanning(false)}
+      />
+    );
+  }
+
   return (
     <main class="app">
       <h1>Grocery</h1>
@@ -151,6 +166,14 @@ export function Welcome({ api, joinCode, onSignedIn }: Props) {
               onInput={(e) => setPasted(e.currentTarget.value)}
             />
           </label>
+        )}
+        {!joinCode && !recovering && (
+          <button type="button" class="wide" onClick={() => setScanning(true)}>
+            Scan a QR code from your partner's phone
+          </button>
+        )}
+        {!joinCode && !recovering && pasted && !error && (
+          <p class="tip">Invite found. Tap Join.</p>
         )}
         {error && <p class="error">{error}</p>}
         <button class="primary" type="submit" disabled={busy}>

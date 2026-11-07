@@ -10,7 +10,9 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "preact": "11.1.0"
+    "jsqr": "1.4.0",
+    "preact": "11.1.0",
+    "qrcode-generator": "2.0.4"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
