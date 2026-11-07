@@ -11,22 +11,28 @@ Ideas for the Grocery app, roughly in the order to do them. Everything stays on 
 - Header Settings icon instead of a bottom bar; the system back gesture returns from Settings
 - Photo of a paper list: shrunk on the phone, read by Claude Haiku 4.5 on Amazon Bedrock, reviewed before anything is added, 20 scans a day
 - CI like TennisTracker (checks, cdk-nag, workflow lint, dependency review, CodeQL, PR title), auto-deploy to AWS and GitHub Pages, Dependabot auto-merge
+- Frequent items: per-store quick-add chips and suggestions from what you buy often, with pin and remove
+- Offline use: a cached app shell and last list, and edits made with no signal queued and replayed in order when it returns
+- Recovery code (shown once, only its hash stored) so losing every device doesn't lock the household out; a Welcome "Lost access?" mode
+- A device can rename itself from Settings
+- Fun touches: emojis on items, a celebration when the list is done, avatars, toasts when the other person adds items, greetings
+- Settings cards for invites and the recovery code start collapsed; the Home Screen icon is dark
+- Hardening: CodeQL is a required check on `main`, the public function URL is capped at 10 concurrent requests, and the repo history has no real name or email (new commits use the GitHub no-reply address)
+- Checked on a real iPhone: offline edit and replay, and the paper-list scan on a handwritten list
 
 ## Next
 
-- **Frequent items (Phase 4).** Per-store quick-add chips and autocomplete from what you buy often; an item added three times is suggested automatically; pin or remove manually. The mockup shows both.
-- **Offline use (Phase 5).** A service worker that caches the app and queues edits made with no signal (Costco has poor reception), then replays them. Today a failed edit is undone with a message.
-- **Try the scan on a real handwritten list.** Check accuracy, store headings and quantities; tune the prompt if needed. The first call also confirms Bedrock model access.
+- **QR code for invites** so Yara can scan instead of pasting a link. The invite card shows the code as a QR next to Copy link; the code is drawn on the phone, nothing new is sent anywhere. (Mockup first.)
+- **Quantity and note editing** on an item (the data supports it; only the screen is missing), and tap-to-rename.
+- **Swipe to delete** and undo for a deleted item or a cleared cart.
+- **Move an item to another store**, and a "Done shopping" action that clears the cart.
 
 ## Soon
 
-- **Setup key and recovery.** Today whoever calls `POST /household` first owns the household, and clearing Safari data on your only device locks you out. A setup key (or a recovery code shown once) closes both.
-- **Make CodeQL a required check** on `main` once it has reported on a PR.
-- **Quantity and note editing** on an item (the data supports it; only the screen is missing), and tap-to-rename.
-- **Swipe to delete** and undo for a deleted item or a cleared cart.
-- **QR code for invites** so Yara can scan instead of pasting a link.
-- **Show people's names, not device names.** Items say "Yara"; separate the person from the device in Settings.
-- **Move an item to another store**, and a "Done shopping" action that clears the cart.
+- **Show people's names, not device names.** Items say "Yara"; separate the person from the device in Settings, so a new phone doesn't become a new person.
+- **Avatar colors for your own names.** The fixed colors for the two household members were keyed to their real names and dropped when the history was cleaned; let each person pick a color in Settings instead.
+- **Update banner.** The Home Screen app keeps a cached copy, so a new version shows only on the second launch; say "New version, tap to reload".
+- **Offline edge cases.** A replayed edit that arrives after its item was deleted re-creates the item (needs tombstones); the "could not be saved" message under-counts if more edits are dropped while it shows (and should have `role="alert"`); a suggestion you removed can't be restored.
 - **Scan polish.** Move the paper-list scan to Haiku 5.5 with one setting (`-c bedrockModel=...`) once it is confirmed available; let her take several photos in a row; show what a scan cost this month.
 
 ## Later
@@ -42,9 +48,11 @@ Ideas for the Grocery app, roughly in the order to do them. Everything stays on 
 ## Hardening and housekeeping
 
 - **Deploy retry.** The deploy decision looks only at the current push, so a failed deploy followed by a docs-only merge isn't retried; consider comparing against what is live.
-- **Rate cap on the public function URL.** A Lambda concurrency limit would bound it, but new AWS accounts can't always reserve concurrency; the device token and the 5 RCU/WCU table are the real guard today.
 - **Dependabot majors.** The pip, Actions and root npm groups still auto-merge major bumps (frontend majors are held back); add a guard if one ever bites.
 - **Shared header component** for the Lists and Settings headers; one error boundary around the app.
 - **minimatch alert (dev-only).** No patched release exists; dismiss it or wait for ESLint to move.
 - **Remove the unneeded extra read** when adding an item (the device name lookup) by carrying the name in the session.
 - **Retire a stale token** automatically for devices unused for months.
+- **Shared OIDC provider.** The deploy role trusts the AWS account's single GitHub OIDC provider, shared with the other projects. Deleting the stack that owns it breaks every deploy until it is recreated (this happened once); keep that in mind before deleting a stack.
+- **Closed PRs still show the old name and email.** GitHub keeps the pre-cleanup commits behind each closed PR in hidden refs that git can't delete. Left on purpose; GitHub Support can purge them, or recreate the repo, if it ever matters.
+- **Setup key.** `POST /household` is still first come, first served on a fresh table; a setup key would close that.
