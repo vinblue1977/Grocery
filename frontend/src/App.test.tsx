@@ -3,6 +3,7 @@ import { act } from 'preact/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Api } from './api';
 import { App, Signed } from './App';
+import { announceUpdate, resetUpdate } from './UpdateBanner';
 
 const session = { token: 't', householdId: 'h', deviceId: 'd', deviceName: 'iPhone', person: 'Victor' };
 const flush = () =>
@@ -105,5 +106,19 @@ describe('the name of the person', () => {
 
   it('keeps the saved name when the server agrees', async () => {
     expect((await run('Victor')).person).toBe('Victor');
+  });
+});
+
+describe('the update banner', () => {
+  it('appears above whatever screen is showing once an update is announced', async () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    await act(() => {
+      render(<App api={{ people: vi.fn().mockResolvedValue([]) } as unknown as Api} />, root);
+    });
+    expect(root.querySelector('.banner')).toBeNull();
+    await act(() => announceUpdate());
+    expect(root.querySelector('.banner')?.textContent).toContain('New version ready');
+    resetUpdate();
   });
 });
