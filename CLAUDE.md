@@ -8,8 +8,8 @@
 - Run `make check` before pushing.
 - After `gh pr create`, run `gh pr merge --auto --squash` yourself. Merges made with `GITHUB_TOKEN` don't start the
   push run, so the deploy would be skipped.
-- Dependabot PRs merge themselves (`dependabot-automerge.yml`, using the `AUTOMERGE_TOKEN` PAT) and the workflow
-  comments `@dependabot rebase` on the ones still open. Never `gh pr update-branch` a Dependabot PR: Dependabot then
+- Dependabot PRs merge themselves (`dependabot-automerge.yml`, using the `AUTOMERGE_TOKEN` PAT) and after any merge
+  into main (ours too) the workflow comments `@dependabot rebase` on the open ones that are behind main. Never `gh pr update-branch` a Dependabot PR: Dependabot then
   refuses to rebase it (fix: comment `@dependabot recreate`). If the token expires, merges stop; renew the secret.
 - When an earlier PR merges, run `gh pr update-branch <n>` on your own PRs still open (branch protection needs them up to date).
 - After a PR merges, delete its branches: `git fetch --prune`, then `git branch -D` every local branch marked `gone` (and any remote branch of a merged PR that GitHub left behind). Never delete a branch with an open PR.

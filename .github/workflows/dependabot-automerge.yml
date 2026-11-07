@@ -1,6 +1,7 @@
 name: Dependabot auto-merge
 
-# Dependabot PRs merge themselves once the required checks pass, and the PRs still open are then rebased.
+# Dependabot PRs merge themselves once the required checks pass. After any merge into main (ours or Dependabot's),
+# the open Dependabot PRs that are behind main are asked to rebase.
 # Both steps use AUTOMERGE_TOKEN (a fine-grained PAT, stored as an Actions and a Dependabot secret) instead
 # of GITHUB_TOKEN: a merge made by GITHUB_TOKEN starts no push run (so no deploy), and a branch update made
 # by it starts no checks. The token needs Contents, Pull requests, Actions and Workflows write on this repo.
@@ -27,12 +28,13 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
 
-  # A merge leaves the other Dependabot PRs behind main (branch protection wants them up to date). Dependabot
-  # rebases its own PRs, which also starts their checks; `gh pr update-branch` would make it refuse to.
-  rebase-others:
+  # A merge leaves the open Dependabot PRs behind main (branch protection wants them up to date). Dependabot
+  # rebases its own PRs, which also starts their checks; `gh pr update-branch` would make it refuse to. Only PRs
+  # that are actually behind get the comment, so an up-to-date one isn't rebuilt for nothing.
+  rebase-behind:
     if: >-
       github.event.action == 'closed' && github.event.pull_request.merged
-      && github.event.pull_request.user.login == 'dependabot[bot]'
+      && github.event.pull_request.base.ref == 'main'
     concurrency:
       group: dependabot-rebase  # overlapping merges queue instead of racing each other's rebases
       cancel-in-progress: false
@@ -40,8 +42,13 @@ jobs:
     timeout-minutes: 5
     steps:
       - run: |
-          for pr in $(gh pr list --repo "$REPO" --author 'app/dependabot' --state open --json number --jq '.[].number'); do
-            gh pr comment "$pr" --repo "$REPO" --body '@dependabot rebase'
+          gh pr list --repo "$REPO" --author 'app/dependabot' --base main --state open \
+            --json number,headRefName --jq '.[] | "\(.number) \(.headRefName)"' |
+          while read -r pr branch; do
+            behind="$(gh api "repos/$REPO/compare/main...$branch" --jq .behind_by)"
+            if [ "$behind" -gt 0 ]; then
+              gh pr comment "$pr" --repo "$REPO" --body '@dependabot rebase'
+            fi
           done
         env:
           GH_TOKEN: ${{ secrets.AUTOMERGE_TOKEN }}
