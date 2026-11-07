@@ -150,7 +150,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
 
   // The celebration only belongs to a store that is still empty of to-buy items. A tick waiting offline still celebrates.
   useEffect(() => {
-    if (celebrating && data?.items.some((i) => i.storeId === celebrating && !i.checked)) setCelebrating(null);
+    if (celebrating && data?.items.some((i) => i.storeId === celebrating && !i.checked && !isResting(i))) setCelebrating(null);
   }, [data, celebrating]);
 
   // A NEW "could not be saved" message means the queue gave up on an edit (the tick is rolled back), so the card goes; an old

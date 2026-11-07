@@ -3,6 +3,7 @@ import type { Item, Snapshot } from './api';
 import {
   applyOp,
   forStore,
+  isLastToBuy,
   pickStore,
   suggestionsFor,
   DAY_MS,
@@ -181,5 +182,12 @@ describe('repeating items', () => {
     const base: Snapshot = { ...data, items: [repeating('milk', 'c', true, 7), item('eggs', 'c', true)] };
     expect(applyOp(base, { kind: 'clearChecked', storeId: 'c' }).items.map((i) => [i.id, (i.returnsAt ?? 0) > 0])).toEqual([['milk', true]]);
     expect(applyOp(base, { kind: 'updateItem', id: 'milk', changes: { resting: true } }).items[0]?.returnsAt).toBeGreaterThan(0);
+  });
+});
+
+describe('the last item to buy', () => {
+  it('ignores items that are resting, so the celebration still fires', () => {
+    const items: Item[] = [item('a', 'c'), { ...item('oats', 'c'), repeatDays: 7, returnsAt: 5 }];
+    expect(isLastToBuy(items, 'c', 'a')).toBe(true);
   });
 });

@@ -173,12 +173,11 @@ def _wake_due(table: Any, session: Session, rows: list[dict[str, Any]]) -> list[
                 table.update_item(
                     Key={"PK": row["PK"], "SK": row["SK"]},
                     UpdateExpression="REMOVE boughtAt SET updatedAt = :now",
-                    ConditionExpression="attribute_exists(boughtAt)",
-                    ExpressionAttributeValues={":now": now},
+                    ConditionExpression="boughtAt = :was",  # only the rest that was read, not a fresh one
+                    ExpressionAttributeValues={":now": now, ":was": row["boughtAt"]},
                 )
-            except ClientError as err:
-                if err.response["Error"]["Code"] != "ConditionalCheckFailedException":
-                    raise
+            except ClientError:
+                continue  # woken or re-rested by the other phone meanwhile, or throttled: the next sync settles it
             woken[row["SK"]] = now
     if not woken:
         return rows
@@ -407,7 +406,7 @@ def update_item(table: Any, session: Session, item_id: str, changes: dict[str, A
     remove: list[str] = []
     if "repeatDays" in changes:
         days = changes["repeatDays"]
-        if isinstance(days, bool) or days not in REPEAT_CHOICES:
+        if not isinstance(days, int) or isinstance(days, bool) or days not in REPEAT_CHOICES:  # 7.0 is not 7: it can't be stored
             raise Invalid("repeatDays must be 0, 7, 14 or 30")
         fields["repeatDays"] = days
     if "resting" in changes:
@@ -444,19 +443,25 @@ def clear_checked(table: Any, session: Session, store_id: str) -> dict[str, int]
     _get(table, session, f"STORE#{store_id}")
     bought = [r for r in _all(table, session) if r["SK"].startswith("ITEM#") and r["storeId"] == store_id and r["checked"]]
     now = _now()
+    resting_gone = 0
     resting = [r for r in bought if int(r.get("repeatDays", 0)) > 0]
     doomed = [r for r in bought if int(r.get("repeatDays", 0)) == 0]
     with table.batch_writer() as batch:
         for row in doomed:
             batch.delete_item(Key={"PK": row["PK"], "SK": row["SK"]})
     for row in resting:  # repeating items are not deleted: they rest until their interval is over
-        table.update_item(
-            Key={"PK": row["PK"], "SK": row["SK"]},
-            UpdateExpression="SET checked = :no, boughtAt = :now, updatedAt = :now",
-            ConditionExpression="attribute_exists(PK)",
-            ExpressionAttributeValues={":no": False, ":now": now},
-        )
-    return {"removed": len(doomed), "resting": len(resting)}
+        try:
+            table.update_item(
+                Key={"PK": row["PK"], "SK": row["SK"]},
+                UpdateExpression="SET checked = :no, boughtAt = :now, updatedAt = :now",
+                ConditionExpression="attribute_exists(PK)",
+                ExpressionAttributeValues={":no": False, ":now": now},
+            )
+        except ClientError as err:
+            if err.response["Error"]["Code"] != "ConditionalCheckFailedException":
+                raise
+            resting_gone += 1  # the other phone deleted it meanwhile: nothing to rest
+    return {"removed": len(doomed), "resting": len(resting) - resting_gone}
 
 
 MAX_BULK = 50

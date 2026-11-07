@@ -83,7 +83,7 @@ export function withRenamedStore(data: Snapshot, id: string, name: string): Snap
 
 /** True when `itemId` is the only thing left to buy in its store, so ticking it empties the store. */
 export function isLastToBuy(items: Item[], storeId: string, itemId: string): boolean {
-  const left = items.filter((i) => i.storeId === storeId && !i.checked);
+  const left = items.filter((i) => i.storeId === storeId && !i.checked && !isResting(i)); // resting items are not on the list
   return left.length === 1 && left[0]?.id === itemId;
 }
 

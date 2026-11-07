@@ -510,3 +510,46 @@ def test_a_scan_adds_an_item_that_is_resting_instead_of_skipping_it(me):
     patch(me, milk, resting=True)
     status, body = call("POST", "/items/bulk", {"items": [{"name": "milk", "storeId": costco}]}, me["token"])
     assert (status, body) == (201, {"added": 1, "skipped": 0})
+
+
+def test_only_whole_number_intervals_are_accepted(me):
+    item = add(me, store_id(me, "Costco"), "Milk")
+    assert patch(me, item, repeatDays=7.0)[0] == 400
+    assert patch(me, item, repeatDays=7)[0] == 200
+
+
+def test_waking_never_undoes_a_rest_that_started_after_it_was_read(me, table):
+    from api import lists
+
+    costco = store_id(me, "Costco")
+    milk = add(me, costco, "Milk")
+    patch(me, milk, repeatDays=7)
+    key = {"PK": f"H#{me['householdId']}", "SK": f"ITEM#{milk['id']}"}
+    table.update_item(Key=key, UpdateExpression="SET boughtAt = :t", ExpressionAttributeValues={":t": 1})
+    stale = [table.get_item(Key=key)["Item"]]  # read while the old rest was over...
+    patch(me, milk, resting=True)  # ...then Done shopping starts a fresh one
+    session = lists.Session(me["householdId"], me["deviceId"])
+    lists._wake_due(table, session, stale)
+    assert table.get_item(Key=key)["Item"]["boughtAt"] > 1  # still resting
+
+
+def test_done_shopping_survives_a_repeating_item_deleted_meanwhile(me, monkeypatch):
+    from api import lists
+
+    costco = store_id(me, "Costco")
+    milk, eggs = add(me, costco, "Milk"), add(me, costco, "Eggs")
+    patch(me, milk, repeatDays=7)
+    for item in (milk, eggs):
+        patch(me, item, checked=True)
+    real = lists._all
+
+    def read_then_lose_milk(table, session):
+        rows = real(table, session)
+        table.delete_item(
+            Key={"PK": f"H#{me['householdId']}", "SK": f"ITEM#{milk['id']}"}
+        )  # the other phone, just after the read
+        return rows
+
+    monkeypatch.setattr(lists, "_all", read_then_lose_milk)
+    status, body = call("POST", f"/stores/{costco}/clear", token=me["token"])
+    assert (status, body) == (200, {"removed": 1, "resting": 0})
