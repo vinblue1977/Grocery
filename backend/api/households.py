@@ -256,7 +256,8 @@ def rename_device(table: Any, session: Session, device_id: str, name: object) ->
     try:
         table.update_item(
             Key={"PK": f"H#{session.household_id}", "SK": f"DEVICE#{device_id}"},
-            UpdateExpression="SET #n = :n",
+            # if_not_exists reads the old name: a device from before people existed keeps it as its person.
+            UpdateExpression="SET #n = :n, person = if_not_exists(person, #n)",
             ConditionExpression="attribute_exists(PK)",
             ExpressionAttributeNames={"#n": "name"},
             ExpressionAttributeValues={":n": clean},
@@ -272,7 +273,7 @@ def list_people(table: Any, session: Session) -> list[str]:
     """The distinct people on the household's devices, in the order they first appeared."""
     people: list[str] = []
     for device in list_devices(table, session):
-        if device["person"] and device["person"] not in people:
+        if device["person"] and device["person"].lower() not in {p.lower() for p in people}:
             people.append(device["person"])
     return people
 

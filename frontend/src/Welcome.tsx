@@ -139,7 +139,7 @@ export function Welcome({ api, joinCode, onSignedIn }: Props) {
             separate from Safari.
           </p>
         )}
-        {!joinCode && !recovering && !pasted && (
+        {!joinCode && !recovering && !parseInviteInput(pasted) && (
           <label class="field">
             <span class="muted">Your name</span>
             <input

@@ -255,3 +255,18 @@ def test_changing_the_person_needs_a_name_and_a_signed_in_device(table):
     table.delete_item(Key={"PK": f"H#{me['householdId']}", "SK": f"DEVICE#{me['deviceId']}"})
     assert call("PUT", "/me/person", {"name": "Vic"}, me["token"])[0] == 401
     assert table.scan()["Count"] == 2  # the removed device was not recreated (household claim and token remain)
+
+
+def test_renaming_a_device_from_before_people_existed_keeps_its_old_name_as_the_person(table):
+    me = create("Yara")
+    table.update_item(Key={"PK": f"H#{me['householdId']}", "SK": f"DEVICE#{me['deviceId']}"}, UpdateExpression="REMOVE person")
+    assert call("PATCH", f"/devices/{me['deviceId']}", {"name": "Yara iPad"}, me["token"])[0] == 200
+    assert call("GET", "/me", token=me["token"])[1]["person"] == "Yara"
+    assert call("PATCH", f"/devices/{me['deviceId']}", {"name": "Yara iPhone"}, me["token"])[0] == 200
+    assert call("GET", "/me", token=me["token"])[1]["person"] == "Yara"
+
+
+def test_people_are_listed_once_whatever_the_capitalisation(table):
+    me = create("iPhone", "Yara")
+    join_as(me, "yara", "iPad")
+    assert call("GET", "/people", token=me["token"])[1] == {"people": ["Yara"]}

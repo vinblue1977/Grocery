@@ -20,11 +20,11 @@ export function loadSession(storage: Pick<Storage, 'getItem'> = localStorage): S
   try {
     const parsed: unknown = JSON.parse(storage.getItem(KEY) ?? 'null');
     // A sign-in saved before people existed used the device name as the person.
-    if (typeof parsed === 'object' && parsed !== null && !('person' in parsed)) {
-      const old = parsed as Record<string, unknown>;
-      return isSession({ ...old, person: old['deviceName'] }) ? ({ ...old, person: old['deviceName'] } as Session) : null;
-    }
-    return isSession(parsed) ? parsed : null;
+    const session =
+      typeof parsed === 'object' && parsed !== null && typeof (parsed as Record<string, unknown>)['person'] !== 'string'
+        ? { ...parsed, person: (parsed as Record<string, unknown>)['deviceName'] }
+        : parsed;
+    return isSession(session) ? session : null;
   } catch {
     return null;
   }

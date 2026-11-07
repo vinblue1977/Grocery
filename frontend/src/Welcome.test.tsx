@@ -184,7 +184,8 @@ describe('scanning a QR invite', () => {
     const { root } = setup();
     await type(root, 1, 'hello th');
     expect(root.textContent).not.toContain('Invite found');
-    await type(root, 0, 'https://vinblue1977.github.io/Grocery/#join=Xk3F9xQ2mZ7vB1nTa8LcW5yRd0HeJ4uG');
+    expect(root.querySelectorAll('input')).toHaveLength(2); // junk in the paste box does not hide the name box
+    await type(root, 1, 'https://vinblue1977.github.io/Grocery/#join=Xk3F9xQ2mZ7vB1nTa8LcW5yRd0HeJ4uG');
     expect(root.textContent).toContain('Invite found. Tap Join.');
   });
 

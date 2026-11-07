@@ -12,15 +12,32 @@ import { WhoAreYou } from './WhoAreYou';
 
 const API_URL = (import.meta.env['VITE_API_URL'] as string | undefined) ?? '';
 
-export function App() {
+export function App({ api: injected }: { api?: Api } = {}) {
   const [session, setSession] = useState<Session | null>(loadSession);
-  const api = useMemo(() => createApi(API_URL, () => loadSession()?.token ?? null), []);
+  const api = useMemo(() => injected ?? createApi(API_URL, () => loadSession()?.token ?? null), []);
   const signOut = () => {
     clearSession();
     clearSnapshot();
     clearQueue();
     setSession(null);
   };
+
+  // Another device of the same person may have changed the name since this one last looked.
+  const known = session?.person ?? '';
+  useEffect(() => {
+    if (!known) return;
+    api.me().then(
+      ({ person }) => {
+        const current = loadSession();
+        if (person && current && person !== current.person) {
+          const next = { ...current, person };
+          saveSession(next);
+          setSession(next);
+        }
+      },
+      () => undefined, // offline or signed out elsewhere: the lists handle that
+    );
+  }, [known]);
 
   if (!session) {
     const joinCode = parseJoinCode(location.hash);
