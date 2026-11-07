@@ -525,7 +525,7 @@ describe('useLists', () => {
     it('greets the person by first name and shows an emoji tile on each item', async () => {
       const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
       await flush();
-      expect(root.querySelector('.hi')?.textContent).toMatch(/^Good (morning|afternoon|evening), Vinod/);
+      expect(root.querySelector('.hi')?.textContent).toMatch(/^(Good (morning|afternoon|evening)|Up late), Vinod/); // the greeting follows the clock, including after midnight
       expect(root.querySelector('.it .em')?.textContent).toBe('🥛');
     });
 
