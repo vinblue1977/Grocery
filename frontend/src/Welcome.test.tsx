@@ -172,6 +172,14 @@ describe('scanning a QR invite', () => {
     expect(onSignedIn).toHaveBeenCalled();
   });
 
+  it('only says an invite was found for something that really is one', async () => {
+    const { root } = setup();
+    await type(root, 1, 'hello th');
+    expect(root.textContent).not.toContain('Invite found');
+    await type(root, 1, 'https://vinblue1977.github.io/Grocery/#join=Xk3F9xQ2mZ7vB1nTa8LcW5yRd0HeJ4uG');
+    expect(root.textContent).toContain('Invite found. Tap Join.');
+  });
+
   it('goes back to the form without filling anything', async () => {
     const { root } = setup();
     await click(scanButton(root) ?? null);

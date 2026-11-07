@@ -76,6 +76,19 @@ describe('ScanQr', () => {
     expect(onCancel).toHaveBeenCalled();
   });
 
+  it('falls back and turns the camera off when a frame cannot be read', async () => {
+    decode.mockImplementation(() => {
+      throw new Error('cannot read frame');
+    });
+    const { root } = setup();
+    await run(2);
+    expect(root.querySelector('.error')?.textContent).toContain("camera isn't available");
+    expect(track.stop).toHaveBeenCalled();
+    const calls = decode.mock.calls.length;
+    await run(3);
+    expect(decode.mock.calls.length).toBe(calls); // the loop stopped; nothing keeps throwing every interval
+  });
+
   it('turns the camera off when the person leaves, even if it came up late', async () => {
     let resolve: (s: MediaStream) => void = () => undefined;
     const slow = vi.fn().mockReturnValue(new Promise<MediaStream>((r) => (resolve = r)));
