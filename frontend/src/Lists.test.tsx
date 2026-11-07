@@ -332,13 +332,85 @@ describe('Lists screen', () => {
     expect(root.querySelector('[aria-label="Often bought"]')).toBeNull();
   });
 
-  it('deletes an item and clears the cart', async () => {
-    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
-    await flush();
-    await click(root.querySelector('[aria-label="Delete Milk"]'));
-    expect(api.deleteItem).toHaveBeenCalledWith('milk');
-    await click(Array.from(root.querySelectorAll('button')).find((b) => b.textContent === 'Clear') ?? null);
-    expect(api.clearChecked).toHaveBeenCalledWith('c');
+  describe('deleting with undo', () => {
+    const tick = (ms: number) =>
+      act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+    const text = (root: HTMLElement) => root.textContent ?? '';
+    const button = (root: HTMLElement, label: string) =>
+      Array.from(root.querySelectorAll('button')).find((b) => b.textContent === label) ?? null;
+    const open = async () => {
+      vi.useFakeTimers();
+      const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+      await tick(0);
+      return root;
+    };
+
+    it('hides a deleted item at once, offers Undo, and sends the delete after six seconds', async () => {
+      const root = await open();
+      await click(root.querySelector('[aria-label="Delete Milk"]'));
+      expect(text(root)).not.toContain('2 gal');
+      expect(text(root)).toContain('Milk deleted');
+      expect(api.deleteItem).not.toHaveBeenCalled();
+      await tick(5000); // polls bring the item back from the server, but it stays hidden
+      expect(api.deleteItem).not.toHaveBeenCalled();
+      expect(text(root)).not.toContain('2 gal');
+      await tick(1100);
+      expect(api.deleteItem).toHaveBeenCalledWith('milk');
+      expect(api.deleteItem).toHaveBeenCalledTimes(1);
+    });
+
+    it('brings the item back with Undo and never sends the delete', async () => {
+      const root = await open();
+      await click(root.querySelector('[aria-label="Delete Milk"]'));
+      await click(button(root, 'Undo'));
+      expect(text(root)).toContain('Milk');
+      expect(text(root)).not.toContain('Milk deleted');
+      await tick(10000);
+      expect(api.deleteItem).not.toHaveBeenCalled();
+      expect(text(root)).toContain('2 gal');
+    });
+
+    it('sends the first delete at once when a second item is deleted', async () => {
+      api.sync = vi.fn().mockResolvedValue({
+        ...snapshot(),
+        items: [...snapshot().items, { id: 'tea', storeId: 'c', name: 'Tea', note: '', checked: false, addedBy: 'Victor', updatedAt: 4 }],
+      });
+      const root = await open();
+      await click(root.querySelector('[aria-label="Delete Milk"]'));
+      await click(root.querySelector('[aria-label="Delete Tea"]'));
+      expect(api.deleteItem).toHaveBeenCalledWith('milk');
+      expect(api.deleteItem).not.toHaveBeenCalledWith('tea');
+      await tick(6100);
+      expect(api.deleteItem).toHaveBeenCalledWith('tea');
+    });
+
+    it('sends a waiting delete when the app goes to the background', async () => {
+      const root = await open();
+      await click(root.querySelector('[aria-label="Delete Milk"]'));
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+      await act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+      expect(api.deleteItem).toHaveBeenCalledWith('milk');
+    });
+
+    it('clears the cart after six seconds unless Undo is tapped', async () => {
+      const root = await open();
+      await click(button(root, 'Clear'));
+      expect(text(root)).toContain('Cleared 1 item');
+      expect(text(root)).not.toContain('Eggs');
+      expect(api.clearChecked).not.toHaveBeenCalled();
+      await click(button(root, 'Undo'));
+      expect(text(root)).toContain('Eggs');
+      await tick(7000);
+      expect(api.clearChecked).not.toHaveBeenCalled();
+      await click(button(root, 'Clear'));
+      await tick(6100);
+      expect(api.clearChecked).toHaveBeenCalledWith('c');
+    });
   });
 
   it('opens settings from the header icon, even while loading', async () => {

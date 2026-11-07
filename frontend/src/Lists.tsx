@@ -9,6 +9,7 @@ import { avatarColor, firstWord, greeting, initial } from './people';
 import { forStore, isLastToBuy, nextStore, pickStore, suggestionsFor, withChecked, withNewItem, withNewStore, withoutChecked, withEditedItem, withoutFrequent, withoutItem, withPinned } from './listState';
 import type { Session } from './session';
 import { ScanSheet } from './ScanSheet';
+import { SwipeRow } from './SwipeRow';
 import type { ListsState } from './useLists';
 
 const changes = (n: number) => `${n} change${n === 1 ? '' : 's'}`;
@@ -17,6 +18,7 @@ const LAST_STORE = 'grocery.store';
 const TOAST_MS = 5000;
 const FRESH_MS = 4000;
 const CLEARED_MS = 6000;
+const UNDO_MS = 6000; // a delete is only sent once this has passed without Undo
 
 function remembered(): string | null {
   try {
@@ -41,13 +43,16 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
   const [storeName, setStoreName] = useState('');
   const [photo, setPhoto] = useState<File | null>(null);
   const [notice, setNotice] = useState('');
-  const [toast, setToast] = useState<{ text: string; storeId?: string } | null>(null);
+  const [toast, setToast] = useState<{ text: string; storeId?: string; undo?: () => void } | null>(null);
+  const [gone, setGone] = useState<Set<string>>(new Set()); // ids deleted on screen that Undo can still bring back
   const [fresh, setFresh] = useState<string[]>([]); // ids another person just added, highlighted for a moment
   const [celebrating, setCelebrating] = useState<string | null>(null); // store whose last item was just ticked
   const [cleared, setCleared] = useState<string | null>(null); // store whose cart was just cleared
   const [popped, setPopped] = useState<Set<string>>(new Set()); // items just ticked, for the pop animation
   const seen = useRef<Item[] | null>(null); // items at the previous sync; null until the first load
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const trash = useRef<{ commit: () => void; restore: () => void } | null>(null);
+  const trashTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const freshTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const clearedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const noticeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -74,16 +79,64 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
     if (addingStore) storeInput.current?.focus(); // once, when the box opens; not on every refresh
   }, [addingStore]);
 
-  const say = (text: string, storeId?: string) => {
+  const say = (text: string, storeId?: string, undo?: () => void) => {
     clearTimeout(toastTimer.current);
-    setToast({ text, storeId });
-    toastTimer.current = setTimeout(() => setToast(null), TOAST_MS);
+    setToast({ text, storeId, ...(undo && { undo }) });
+    toastTimer.current = setTimeout(() => setToast(null), undo ? UNDO_MS : TOAST_MS);
   };
+
+  // A delete shows at once but is only sent after UNDO_MS, so Undo is just "never send it". A second delete, leaving the
+  // app, or the timer ending sends the first one straight away.
+  const commitTrash = () => {
+    clearTimeout(trashTimer.current);
+    const t = trash.current;
+    trash.current = null;
+    t?.commit();
+  };
+  const trashItems = (ids: string[], text: string, commit: () => void, restore: () => void) => {
+    commitTrash();
+    setGone((old) => new Set([...old, ...ids]));
+    trash.current = {
+      commit,
+      restore: () => {
+        setGone((old) => new Set([...old].filter((id) => !ids.includes(id))));
+        restore();
+      },
+    };
+    trashTimer.current = setTimeout(commitTrash, UNDO_MS);
+    say(text, undefined, () => {
+      clearTimeout(trashTimer.current);
+      const t = trash.current;
+      trash.current = null;
+      t?.restore();
+      setToast(null);
+    });
+  };
+
+  useEffect(() => {
+    const flush = () => {
+      if (document.visibilityState === 'hidden') commitTrash();
+    };
+    document.addEventListener('visibilitychange', flush);
+    window.addEventListener('pagehide', commitTrash);
+    return () => {
+      document.removeEventListener('visibilitychange', flush);
+      window.removeEventListener('pagehide', commitTrash);
+    };
+  }, []);
+
+  // Once a delete has really happened the id is gone from the list, so it no longer needs hiding.
+  useEffect(() => {
+    if (gone.size === 0 || !data) return;
+    const present = new Set(data.items.map((i) => i.id));
+    if ([...gone].some((id) => !present.has(id))) setGone((old) => new Set([...old].filter((id) => present.has(id))));
+  }, [data, gone]);
 
   useEffect(() => {
     const pops = popTimers.current;
     return () => {
-      for (const t of [toastTimer, freshTimer, clearedTimer, noticeTimer]) clearTimeout(t.current);
+      commitTrash(); // leaving the screen must not drop a delete that was waiting
+      for (const t of [toastTimer, freshTimer, clearedTimer, noticeTimer, trashTimer]) clearTimeout(t.current);
       for (const t of pops.values()) clearTimeout(t);
     };
   }, []);
@@ -146,7 +199,8 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
 
   const storeId = pickStore(data.stores, wanted);
   const editingItem = editingId ? data.items.find((i) => i.id === editingId) : undefined; // gone if the other phone deleted it
-  const { toBuy, inCart } = storeId ? forStore(data.items, storeId) : { toBuy: [], inCart: [] };
+  const shown = gone.size ? data.items.filter((i) => !gone.has(i.id)) : data.items;
+  const { toBuy, inCart } = storeId ? forStore(shown, storeId) : { toBuy: [], inCart: [] };
   const editing = editingOften && !text.trim(); // typing means adding, so Edit mode steps aside
   const storeLabel = data.stores.find((s) => s.id === storeId)?.name ?? '';
   const next = storeId ? nextStore(data.stores, storeId) : null;
@@ -184,8 +238,24 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
     setCleared(storeId);
     clearTimeout(clearedTimer.current);
     clearedTimer.current = setTimeout(() => setCleared(null), CLEARED_MS);
-    say(`Cleared ${n} item${n === 1 ? '' : 's'}`);
-    void mutate((d) => withoutChecked(d, storeId), { kind: 'clearChecked', storeId });
+    trashItems(
+      inCart.map((i) => i.id),
+      `Cleared ${n} item${n === 1 ? '' : 's'}`,
+      () => void mutate((d) => withoutChecked(d, storeId), { kind: 'clearChecked', storeId }),
+      () => {
+        setCleared(null);
+        clearTimeout(clearedTimer.current);
+      },
+    );
+  };
+
+  const deleteItem = (item: Item) => {
+    trashItems(
+      [item.id],
+      `${item.name} deleted`,
+      () => void mutate((d) => withoutItem(d, item.id), { kind: 'deleteItem', id: item.id }),
+      () => undefined,
+    );
   };
 
   const closeStoreForm = () => {
@@ -333,13 +403,14 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
               </div>
             )}
             {toBuy.map((item) => (
-              <div class={fresh.includes(item.id) ? 'it fresh' : 'it'} key={item.id}>
+              <SwipeRow key={item.id} onDelete={() => deleteItem(item)}>
+              <div class={fresh.includes(item.id) ? 'it fresh' : 'it'}>
                 <button
                   type="button"
                   class="ck"
                   aria-label={`Check off ${item.name}`}
                   onClick={() => {
-                    if (isLastToBuy(data.items, item.storeId, item.id)) setCelebrating(item.storeId);
+                    if (isLastToBuy(shown, item.storeId, item.id)) setCelebrating(item.storeId);
                     setPopped((old) => new Set(old).add(item.id));
                     clearTimeout(popTimers.current.get(item.id));
                     popTimers.current.set(
@@ -371,11 +442,12 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
                   type="button"
                   class="x"
                   aria-label={`Delete ${item.name}`}
-                  onClick={() => void mutate((d) => withoutItem(d, item.id), { kind: 'deleteItem', id: item.id })}
+                  onClick={() => deleteItem(item)}
                 >
                   ✕
                 </button>
               </div>
+              </SwipeRow>
             ))}
           </section>
 
@@ -464,6 +536,11 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
         {toast && (
           <div class="toast">
             <span>{toast.text}</span>
+            {toast.undo && (
+              <button type="button" onClick={toast.undo}>
+                Undo
+              </button>
+            )}
             {toast.storeId && (
               <button
                 type="button"
