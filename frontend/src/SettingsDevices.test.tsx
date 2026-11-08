@@ -155,6 +155,20 @@ describe('people', () => {
     expect(root.querySelector('form')).toBeNull();
   });
 
+  it('starts collapsed, and closing the card drops an unsaved name edit', async () => {
+    const root = await mount();
+    const card = Array.from(root.querySelectorAll('details')).find((d) => d.querySelector('summary')?.textContent === 'You') as HTMLDetailsElement;
+    expect(card.open).toBe(false);
+    card.open = true;
+    card.dispatchEvent(new Event('toggle'));
+    await click(buttons(root, 'Change name')[0]);
+    expect(root.querySelector('form')).not.toBeNull();
+    card.open = false;
+    card.dispatchEvent(new Event('toggle'));
+    await Promise.resolve();
+    expect(root.querySelector('form')).toBeNull();
+  });
+
   it('keeps the form when changing the name fails, and signs out if this device was removed', async () => {
     api.setPerson = vi.fn().mockRejectedValue(new ApiError(500, 'boom'));
     const root = await mount();

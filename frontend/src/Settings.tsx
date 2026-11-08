@@ -176,7 +176,12 @@ export function Settings({ api, lists, session, onSignedOut, onRenamed, onPerson
       </header>
       <p class="muted">Signed in as {session.person}</p>
 
-      <details class="card">
+      <details
+        class="card"
+        onToggle={(e) => {
+          if (!e.currentTarget.open) setEditingPerson(null); // closing the card drops an unsaved name edit
+        }}
+      >
         <summary>
           <strong>You</strong>
         </summary>
