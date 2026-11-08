@@ -24,27 +24,31 @@ Ideas for the Grocery app, roughly in the order to do them. Everything stays on 
 - "Done shopping" (the old Clear, still undoable), and moving an item to another store from the edit sheet
 - Avatar colors: each person picks one of eight in Settings (saved for the household, so both phones agree); without a pick the color stays automatic
 - Recurring items: set Repeat (weekly, every 2 weeks, monthly) in the edit sheet; Done shopping rests them under "Coming back" and they return to To buy on their day (or with Add now)
+- QR code for invites and partner joining: draw QR code in Settings, scan with the camera in the app
+- Quantity, note, and name editing on an item via the tap-to-edit sheet
+- Screen wake lock: the screen stays on while a store with items is open (still to check on a real iPhone)
+- Settings cards (You, Appearance, Stores) start collapsed
 - Checked on a real iPhone: offline edit and replay, and the paper-list scan on a handwritten list
 
 ## Next
 
-- **QR code for invites** so Yara can scan instead of pasting a link. The invite card shows the code as a QR next to Copy link; the code is drawn on the phone, nothing new is sent anywhere. (Mockup first.)
-- **Quantity and note editing** on an item (the data supports it; only the screen is missing), and tap-to-rename.
+- **Aisle or category order** so a list matches how you walk the store (Costco, Patel, etc.). Group items by store department (Produce, Dairy & Eggs, Meat, Pantry, Frozen, Household) using the existing emoji/keyword mappings with collapsible section headers, avoiding scrolling up and down while shopping.
+- **Haptic feedback.** Subtle vibrations on item check-off, swipe-to-delete, and quick-add chips (`navigator.vibrate`) to give the PWA a native iOS feel.
 
 ## Soon
 
-- **Offline edge cases.** A replayed edit that arrives after its item was deleted re-creates the item (needs tombstones); the "could not be saved" message under-counts if more edits are dropped while it shows (and should have `role="alert"`); a suggestion you removed can't be restored.
-- **Scan polish.** Move the paper-list scan to Haiku 5.5 with one setting (`-c bedrockModel=...`) once it is confirmed available; let her take several photos in a row; show what a scan cost this month.
+- **Offline edge cases.** A replayed edit that arrives after its item was deleted re-creates the item (needs short-lived tombstones); the "could not be saved" message under-counts if more edits are dropped while it shows (and should have `role="alert"`); a suggestion you removed can't be restored.
+- **Faster sync with conditional ETags / 304.** The client sends `If-None-Match` or household version; Lambda checks only the single household metadata row (`META#HOUSEHOLD`) to return `304 Not Modified`, saving ~70–80% of DynamoDB RCUs and bandwidth during active polling.
+- **Scan polish.** Move the paper-list scan to Haiku 5.5 with one setting (`-c bedrockModel=...`) once it is confirmed available; let her take several photos in a row for long lists; show scan count and month-to-date cost in Settings (`Scans this month: N (~$0.0X)`).
 
 ## Later
 
-- **Push notifications** ("Yara added 3 items to Costco") using Web Push, which works for Home Screen apps on iOS 16.4+ and is free.
-- **Faster sync.** A "changed since" check or ETags so polls read almost nothing; WebSockets only if polling ever feels slow.
-- **"Usually buy together"** suggestion.
+- **Push notifications** ("Yara added 3 items to Costco") using Web Push, which works for Home Screen apps on iOS 16.4+ and is free via VAPID keys.
+- **Receipt reconciliation scan ("Done Shopping" receipt scan).** Snap the paper receipt at checkout; Bedrock Haiku compares it against "In cart" to verify everything was bought, flags anything missed, and tracks trip history.
+- **"Usually buy together"** suggestions.
 - **Share a single list read-only** (for a friend picking things up), and more than two people per household.
-- **Aisle or category order** so a list matches how you walk the store.
-- **Export or backup** of the lists to a file.
-- **Android and desktop polish** (install prompt, keyboard use).
+- **Export or backup** of the lists, stores, and frequent items to a JSON or CSV file from Settings.
+- **Android and desktop polish** (install prompt, keyboard navigation).
 
 ## Hardening and housekeeping
 
