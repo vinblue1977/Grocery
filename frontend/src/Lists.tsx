@@ -11,6 +11,7 @@ import type { Session } from './session';
 import { ScanSheet } from './ScanSheet';
 import { SwipeRow } from './SwipeRow';
 import type { ListsState } from './useLists';
+import { useWakeLock } from './useWakeLock';
 
 const repeatLabel = (days: number) => (days === 7 ? 'weekly' : days === 14 ? 'every 2 weeks' : days === 30 ? 'monthly' : '');
 const dayLabel = (ms: number) => new Date(ms).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
@@ -175,6 +176,10 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
     clearTimeout(freshTimer.current);
     freshTimer.current = setTimeout(() => setFresh([]), FRESH_MS);
   }, [serverSnapshot]);
+
+  // Shopping: a store with something on its list keeps the screen awake, so the phone stays lit while pushing the cart.
+  const wakeStore = data ? pickStore(data.stores, wanted) : null;
+  useWakeLock(!!data && !!wakeStore && data.items.some((i) => i.storeId === wakeStore && !isResting(i)));
 
   const hi = greeting(new Date().getHours(), session.person);
   const header = (

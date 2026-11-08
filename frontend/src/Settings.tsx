@@ -241,8 +241,10 @@ export function Settings({ api, lists, session, onSignedOut, onRenamed, onPerson
         <div class="muted">Shown on the items you add. Old items keep the name they had.</div>
       </details>
 
-      <section class="card">
-        <strong>Appearance</strong>
+      <details class="card">
+        <summary>
+          <strong>Appearance</strong>
+        </summary>
         <div class="muted">This device only</div>
         <div class="seg">
           {CHOICES.map((choice) => (
@@ -251,10 +253,20 @@ export function Settings({ api, lists, session, onSignedOut, onRenamed, onPerson
             </button>
           ))}
         </div>
-      </section>
+      </details>
 
-      <section class="card">
-        <strong>Stores</strong>
+      <details
+        class="card"
+        onToggle={(e) => {
+          if (!e.currentTarget.open) {
+            setRenaming(null); // closing the card drops an unsaved rename and a half-confirmed delete
+            setConfirming(null);
+          }
+        }}
+      >
+        <summary>
+          <strong>Stores</strong>
+        </summary>
         {lists.data?.stores.map((store) => (
           <div class="row" key={store.id}>
             {renaming?.id === store.id ? (
@@ -293,7 +305,7 @@ export function Settings({ api, lists, session, onSignedOut, onRenamed, onPerson
             )}
           </div>
         ))}
-      </section>
+      </details>
 
       <details class="card">
         <summary>
