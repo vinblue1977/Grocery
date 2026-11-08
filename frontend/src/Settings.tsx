@@ -176,8 +176,10 @@ export function Settings({ api, lists, session, onSignedOut, onRenamed, onPerson
       </header>
       <p class="muted">Signed in as {session.person}</p>
 
-      <section class="card">
-        <strong>You</strong>
+      <details class="card">
+        <summary>
+          <strong>You</strong>
+        </summary>
         {editingPerson !== null ? (
           <form
             class="add"
@@ -232,7 +234,7 @@ export function Settings({ api, lists, session, onSignedOut, onRenamed, onPerson
           ))}
         </div>
         <div class="muted">Shown on the items you add. Old items keep the name they had.</div>
-      </section>
+      </details>
 
       <section class="card">
         <strong>Appearance</strong>
