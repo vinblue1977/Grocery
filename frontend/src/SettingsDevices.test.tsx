@@ -26,14 +26,14 @@ let onRenamed: Mock<(name: string) => void>;
 let onPersonChanged: Mock<(person: string) => void>;
 let onSignedOut: Mock<() => void>;
 
-async function mount() {
+async function mount(stores: { id: string; name: string; order: number }[] = []) {
   const root = document.createElement('div');
   document.body.append(root);
   act(() => {
     render(
       <Settings
         api={api}
-        lists={{ data: { stores: [], items: [], colors: { victor: '#7bd389' } }, refresh } as unknown as ListsState}
+        lists={{ data: { stores, items: [], colors: { victor: '#7bd389' } }, refresh } as unknown as ListsState}
         session={session}
         onSignedOut={onSignedOut}
         onRenamed={onRenamed}
@@ -167,6 +167,23 @@ describe('people', () => {
     card.dispatchEvent(new Event('toggle'));
     await Promise.resolve();
     expect(root.querySelector('form')).toBeNull();
+  });
+
+  it('starts Appearance and Stores collapsed, and closing Stores drops an unsaved rename', async () => {
+    const root = await mount([{ id: 'c', name: 'Costco', order: 0 }]);
+    const card = (title: string) =>
+      Array.from(root.querySelectorAll('details')).find((d) => d.querySelector('summary')?.textContent === title) as HTMLDetailsElement;
+    expect(card('Appearance').open).toBe(false);
+    const stores = card('Stores');
+    expect(stores.open).toBe(false);
+    stores.open = true;
+    stores.dispatchEvent(new Event('toggle'));
+    await click(buttons(stores, 'Rename')[0]);
+    expect(stores.querySelector('form')).not.toBeNull();
+    stores.open = false;
+    stores.dispatchEvent(new Event('toggle'));
+    await Promise.resolve();
+    expect(stores.querySelector('form')).toBeNull();
   });
 
   it('keeps the form when changing the name fails, and signs out if this device was removed', async () => {
