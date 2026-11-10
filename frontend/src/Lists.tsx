@@ -294,6 +294,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
         }
       },
       () => {
+        if (storeIds.length !== 1) return; // only a single-store clear sets the 'cleared' card
         setCleared(null);
         clearTimeout(clearedTimer.current);
       },
@@ -379,7 +380,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
         {emojiFor(item.name)}
       </span>
       <span class="nm">{item.name}</span>
-      {tag && <span class="store">{tag}</span>}
+      {tag && <span class="store-tag">{tag}</span>}
     </div>
   );
 
