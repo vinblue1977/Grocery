@@ -115,7 +115,7 @@ describe('Lists screen', () => {
     });
     await click(Array.from(root.querySelectorAll('[role=tab]')).find((t) => t.textContent === 'All') ?? null);
     expect(root.querySelector('.hint')?.textContent).toContain('Pick a store');
-    expect(root.querySelector('section[aria-label="In cart"] .store')?.textContent).toBe('Costco');
+    expect(root.querySelector('section[aria-label="In cart"] .store-tag')?.textContent).toBe('Costco');
     await click(Array.from(root.querySelectorAll('button')).find((b) => b.textContent === 'Done shopping') ?? null);
     expect(root.textContent).toContain('1 item bought');
     await act(async () => {
