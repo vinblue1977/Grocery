@@ -107,6 +107,40 @@ describe('Lists screen', () => {
     expect(localStorage.getItem('grocery.store')).toBe('all');
   });
 
+  it('clears the carts of every store from Done shopping on the All tab', async () => {
+    vi.useFakeTimers();
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    await click(Array.from(root.querySelectorAll('[role=tab]')).find((t) => t.textContent === 'All') ?? null);
+    expect(root.querySelector('.hint')?.textContent).toContain('Pick a store');
+    expect(root.querySelector('section[aria-label="In cart"] .store')?.textContent).toBe('Costco');
+    await click(Array.from(root.querySelectorAll('button')).find((b) => b.textContent === 'Done shopping') ?? null);
+    expect(root.textContent).toContain('1 item bought');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(7000);
+    });
+    expect(api.clearChecked).toHaveBeenCalledWith('c');
+    expect(api.clearChecked).toHaveBeenCalledTimes(1); // Patel had nothing in its cart
+  });
+
+  it('lists items coming back from every store on the All tab', async () => {
+    api.sync = vi.fn().mockImplementation(() => {
+      const snap = snapshot();
+      snap.items.push({ id: 'oat', storeId: 'p', name: 'Oat milk', note: '', checked: false, addedBy: 'Yara', updatedAt: 4, repeatDays: 7, returnsAt: Date.now() + 3 * 86_400_000 });
+      return Promise.resolve(snap);
+    });
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await flush();
+    await click(Array.from(root.querySelectorAll('[role=tab]')).find((t) => t.textContent === 'All') ?? null);
+    expect(root.textContent).toContain('Coming back · 1');
+    await click(root.querySelector('section[aria-label="Coming back"] .link-btn'));
+    expect(root.querySelector('section[aria-label="Coming back"]')?.textContent).toContain('Patel');
+    await click(root.querySelector('[aria-label="Add Oat milk now"]'));
+    expect(api.updateItem).toHaveBeenCalledWith('oat', { resting: false });
+  });
+
   it('opens a store from its heading on the All tab and ticks items there', async () => {
     const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
     await flush();
