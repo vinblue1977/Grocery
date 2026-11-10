@@ -19,6 +19,7 @@ const dayLabel = (ms: number) => new Date(ms).toLocaleDateString(undefined, { we
 const changes = (n: number) => `${n} change${n === 1 ? '' : 's'}`;
 
 const LAST_STORE = 'grocery.store';
+const ALL = 'all'; // the consolidated tab; remembered in the same place as a store id
 const TOAST_MS = 5000;
 const FRESH_MS = 4000;
 const CLEARED_MS = 6000;
@@ -74,7 +75,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
   // A store chosen when it was added but never created (the add was refused) must not linger as the remembered selection.
   const stores = data?.stores;
   useEffect(() => {
-    if (!stores || pending > 0 || !wanted || stores.some((s) => s.id === wanted)) return;
+    if (!stores || pending > 0 || !wanted || wanted === ALL || stores.some((s) => s.id === wanted)) return;
     setWanted(null);
     try {
       localStorage.removeItem(LAST_STORE);
@@ -179,7 +180,8 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
 
   // Shopping: a store with something on its list keeps the screen awake, so the phone stays lit while pushing the cart.
   const wakeStore = data ? pickStore(data.stores, wanted) : null;
-  useWakeLock(!!data && !!wakeStore && data.items.some((i) => i.storeId === wakeStore && !isResting(i)));
+  const wakeAll = wanted === ALL && !!data && data.stores.length > 1;
+  useWakeLock(!!data && (wakeAll ? data.items.some((i) => !isResting(i)) : !!wakeStore && data.items.some((i) => i.storeId === wakeStore && !isResting(i))));
 
   const hi = greeting(new Date().getHours(), session.person);
   const header = (
@@ -218,13 +220,19 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
       })
     : data.items;
   const view = shown === data.items ? data : { ...data, items: shown }; // what is on screen, minus deletes Undo could still bring back
-  const storeId = pickStore(data.stores, wanted);
+  const all = wanted === ALL && data.stores.length > 1; // the consolidated view needs at least two stores to be worth it
+  const storeId = all ? null : pickStore(data.stores, wanted);
   const editingItem = editingId ? shown.find((i) => i.id === editingId) : undefined; // gone if the other phone deleted it
   const { toBuy, inCart, resting } = storeId ? forStore(shown, storeId) : { toBuy: [], inCart: [], resting: [] };
   const editing = editingOften && !text.trim(); // typing means adding, so Edit mode steps aside
   const storeLabel = data.stores.find((s) => s.id === storeId)?.name ?? '';
   const next = storeId ? nextStore(data.stores, storeId) : null;
   const justCleared = cleared === storeId;
+  const groups = data.stores.map((store) => ({ store, ...forStore(shown, store.id) }));
+  const everything = {
+    toBuy: groups.reduce((n, g) => n + g.toBuy.length, 0),
+    cart: groups.flatMap((g) => g.inCart.map((item) => ({ item, store: g.store.name }))),
+  };
   const often = storeId ? suggestionsFor(view, storeId, text, editing) : [];
 
   const choose = (id: string) => {
@@ -292,6 +300,77 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
     );
   };
 
+  const toBuyRow = (item: Item) => (
+      <SwipeRow key={item.id} onDelete={() => deleteItem(item)}>
+        <div class={fresh.includes(item.id) ? 'it fresh' : 'it'}>
+          <button
+            type="button"
+            class="ck"
+            aria-label={`Check off ${item.name}`}
+            onClick={() => {
+              if (isLastToBuy(shown, item.storeId, item.id)) setCelebrating(item.storeId);
+              setPopped((old) => new Set(old).add(item.id));
+              clearTimeout(popTimers.current.get(item.id));
+              popTimers.current.set(
+                item.id,
+                setTimeout(() => {
+                  popTimers.current.delete(item.id);
+                  setPopped((old) => {
+                    const next = new Set(old);
+                    next.delete(item.id);
+                    return next;
+                  });
+                }, 1000),
+              );
+              void mutate((d) => withChecked(d, item.id, true), { kind: 'updateItem', id: item.id, changes: { checked: true } });
+            }}
+          />
+          <span class="em" aria-hidden="true">
+            {emojiFor(item.name)}
+          </span>
+          <button type="button" class="nm" aria-label={`Edit ${item.name}`} onClick={() => setEditingId(item.id)}>
+            {item.name}
+            {(item.repeatDays ?? 0) > 0 && (
+              <span class="rep" role="img" aria-label={`Repeats ${repeatLabel(item.repeatDays ?? 0)}`}>
+                ↻
+              </span>
+            )}
+            {fresh.includes(item.id) && <b class="new">New</b>}
+            {item.note && <small class="muted"> {item.note}</small>}
+          </button>
+          <span class="av" role="img" aria-label={`Added by ${firstWord(item.addedBy)}`} title={item.addedBy} style={{ background: avatarColor(item.addedBy, data.colors) }}>
+            {initial(item.addedBy)}
+          </span>
+          <button
+            type="button"
+            class="x"
+            aria-label={`Delete ${item.name}`}
+            onClick={() => deleteItem(item)}
+          >
+            ✕
+          </button>
+        </div>
+      </SwipeRow>
+  );
+
+  const cartRow = (item: Item, tag?: string) => (
+      <div class={popped.has(item.id) ? 'it done pop' : 'it done'} key={item.id}>
+        <button
+          type="button"
+          class="ck on"
+          aria-label={`Put ${item.name} back`}
+          onClick={() => void mutate((d) => withChecked(d, item.id, false), { kind: 'updateItem', id: item.id, changes: { checked: false } })}
+        >
+          ✓
+        </button>
+        <span class="em" aria-hidden="true">
+          {emojiFor(item.name)}
+        </span>
+        <span class="nm">{item.name}</span>
+      {tag && <small class="muted">{tag}</small>}
+      </div>
+  );
+
   const closeStoreForm = () => {
     setStoreName('');
     setAddingStore(false);
@@ -314,6 +393,11 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
     <main class="app">
       {header}
       <div class="tabs" role="tablist">
+        {data.stores.length > 1 && (
+          <button type="button" role="tab" class="tab" aria-selected={all} onClick={() => choose(ALL)}>
+            All
+          </button>
+        )}
         {data.stores.map((store) => (
           <button key={store.id} type="button" role="tab" class="tab" aria-selected={store.id === storeId} onClick={() => choose(store.id)}>
             {store.name}
@@ -341,7 +425,39 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
         </form>
       )}
 
-      {!storeId ? (
+      {all ? (
+        <>
+          <section aria-label="To buy">
+            <div class="sec">To buy · {everything.toBuy}</div>
+            {everything.toBuy === 0 && (
+              <div class="empty">
+                <div class="big" aria-hidden="true">
+                  🛒
+                </div>
+                <p class="line">Nothing to buy anywhere. Suspiciously organised.</p>
+              </div>
+            )}
+            {groups.map(({ store, toBuy: mine }) =>
+              mine.length === 0 ? null : (
+                <div key={store.id} role="group" aria-label={store.name}>
+                  <button type="button" class="grp" aria-label={`Open ${store.name}`} onClick={() => choose(store.id)}>
+                    {store.name} · {mine.length} <span aria-hidden="true">›</span>
+                  </button>
+                  {mine.map(toBuyRow)}
+                </div>
+              ),
+            )}
+          </section>
+          {everything.cart.length > 0 && (
+            <section aria-label="In cart">
+              <div class="sec">
+                <span>In cart · {everything.cart.length}</span>
+              </div>
+              {everything.cart.map(({ item, store }) => cartRow(item, store))}
+            </section>
+          )}
+        </>
+      ) : !storeId ? (
         <p class="muted">No stores yet. Tap ＋ to add one.</p>
       ) : (
         <>
@@ -436,58 +552,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
                 <p class="muted">Type above or tap the camera to add</p>
               </div>
             )}
-            {toBuy.map((item) => (
-              <SwipeRow key={item.id} onDelete={() => deleteItem(item)}>
-                <div class={fresh.includes(item.id) ? 'it fresh' : 'it'}>
-                  <button
-                    type="button"
-                    class="ck"
-                    aria-label={`Check off ${item.name}`}
-                    onClick={() => {
-                      if (isLastToBuy(shown, item.storeId, item.id)) setCelebrating(item.storeId);
-                      setPopped((old) => new Set(old).add(item.id));
-                      clearTimeout(popTimers.current.get(item.id));
-                      popTimers.current.set(
-                        item.id,
-                        setTimeout(() => {
-                          popTimers.current.delete(item.id);
-                          setPopped((old) => {
-                            const next = new Set(old);
-                            next.delete(item.id);
-                            return next;
-                          });
-                        }, 1000),
-                      );
-                      void mutate((d) => withChecked(d, item.id, true), { kind: 'updateItem', id: item.id, changes: { checked: true } });
-                    }}
-                  />
-                  <span class="em" aria-hidden="true">
-                    {emojiFor(item.name)}
-                  </span>
-                  <button type="button" class="nm" aria-label={`Edit ${item.name}`} onClick={() => setEditingId(item.id)}>
-                    {item.name}
-                    {(item.repeatDays ?? 0) > 0 && (
-                      <span class="rep" role="img" aria-label={`Repeats ${repeatLabel(item.repeatDays ?? 0)}`}>
-                        ↻
-                      </span>
-                    )}
-                    {fresh.includes(item.id) && <b class="new">New</b>}
-                    {item.note && <small class="muted"> {item.note}</small>}
-                  </button>
-                  <span class="av" role="img" aria-label={`Added by ${firstWord(item.addedBy)}`} title={item.addedBy} style={{ background: avatarColor(item.addedBy, data.colors) }}>
-                    {initial(item.addedBy)}
-                  </span>
-                  <button
-                    type="button"
-                    class="x"
-                    aria-label={`Delete ${item.name}`}
-                    onClick={() => deleteItem(item)}
-                  >
-                    ✕
-                  </button>
-                </div>
-              </SwipeRow>
-            ))}
+            {toBuy.map(toBuyRow)}
           </section>
 
           {inCart.length > 0 && (
@@ -498,22 +563,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
                   Done shopping
                 </button>
               </div>
-              {inCart.map((item) => (
-                <div class={popped.has(item.id) ? 'it done pop' : 'it done'} key={item.id}>
-                  <button
-                    type="button"
-                    class="ck on"
-                    aria-label={`Put ${item.name} back`}
-                    onClick={() => void mutate((d) => withChecked(d, item.id, false), { kind: 'updateItem', id: item.id, changes: { checked: false } })}
-                  >
-                    ✓
-                  </button>
-                  <span class="em" aria-hidden="true">
-                    {emojiFor(item.name)}
-                  </span>
-                  <span class="nm">{item.name}</span>
-                </div>
-              ))}
+              {inCart.map((item) => cartRow(item))}
             </section>
           )}
 
