@@ -88,9 +88,33 @@ describe('Lists screen', () => {
   it('switches store and remembers the choice', async () => {
     const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
     await flush();
-    await click(root.querySelectorAll('[role=tab]')[1] ?? null);
+    await click(Array.from(root.querySelectorAll('[role=tab]')).find((t) => t.textContent === 'Patel') ?? null);
     expect(root.textContent).toContain('Rice');
     expect(localStorage.getItem('grocery.store')).toBe('p');
+  });
+
+  it('shows every store and its items together on the All tab', async () => {
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await flush();
+    await click(Array.from(root.querySelectorAll('[role=tab]')).find((t) => t.textContent === 'All') ?? null);
+    expect(root.querySelector('[role=tab][aria-selected=true]')?.textContent).toBe('All');
+    expect(root.textContent).toContain('To buy · 2');
+    expect(root.querySelector('[role=group][aria-label=Costco]')?.textContent).toContain('Milk');
+    expect(root.querySelector('[role=group][aria-label=Patel]')?.textContent).toContain('Rice');
+    expect(root.textContent).toContain('In cart · 1');
+    expect(root.textContent).toContain('Eggs');
+    expect(root.querySelector('input[placeholder^="Add item"]')).toBeNull(); // adding needs a store
+    expect(localStorage.getItem('grocery.store')).toBe('all');
+  });
+
+  it('opens a store from its heading on the All tab and ticks items there', async () => {
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await flush();
+    await click(Array.from(root.querySelectorAll('[role=tab]')).find((t) => t.textContent === 'All') ?? null);
+    await click(root.querySelector('[aria-label="Check off Rice"]'));
+    expect(api.updateItem).toHaveBeenCalledWith('rice', { checked: true });
+    await click(root.querySelector('[aria-label="Open Costco"]'));
+    expect(root.querySelector('[role=tab][aria-selected=true]')?.textContent).toBe('Costco');
   });
 
   it('checks an item off at once and tells the server', async () => {
