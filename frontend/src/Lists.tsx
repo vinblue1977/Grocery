@@ -75,7 +75,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
   // A store chosen when it was added but never created (the add was refused) must not linger as the remembered selection.
   const stores = data?.stores;
   useEffect(() => {
-    if (!stores || pending > 0 || !wanted || wanted === ALL || stores.some((s) => s.id === wanted)) return;
+    if (!stores || pending > 0 || !wanted || (wanted === ALL && stores.length > 1) || stores.some((s) => s.id === wanted)) return; // 'all' only stands while there are two stores
     setWanted(null);
     try {
       localStorage.removeItem(LAST_STORE);
@@ -308,7 +308,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
             class="ck"
             aria-label={`Check off ${item.name}`}
             onClick={() => {
-              if (isLastToBuy(shown, item.storeId, item.id)) setCelebrating(item.storeId);
+              if (!all && isLastToBuy(shown, item.storeId, item.id)) setCelebrating(item.storeId); // the All tab has no celebration card
               setPopped((old) => new Set(old).add(item.id));
               clearTimeout(popTimers.current.get(item.id));
               popTimers.current.set(
