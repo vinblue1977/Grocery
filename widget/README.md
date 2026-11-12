@@ -10,4 +10,4 @@ A read-only widget that shows what is still to buy, built with the free [Scripta
 4. Run the script in Scriptable (the play button). Enter the API address (the one the app uses), then paste the invite link.
 5. Long-press the Home Screen, tap +, pick Scriptable, add a small, medium or large widget, tap it, and choose the script Grocery.
 
-The widget refreshes about every 15 minutes (iOS decides the exact timing) and tapping it opens the app. If it ever says it signed out, run the script again to set it up with a new invite.
+The widget refreshes about every 15 minutes (iOS decides the exact timing). Tapping it does nothing useful: iOS cannot open a Home Screen web app from a widget (links open in Safari), so open Grocery from its own icon. If it ever says it signed out, run the script again to set it up with a new invite.

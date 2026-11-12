@@ -47,8 +47,7 @@ async function setup() {
     throw new Error("That API address did not answer like the Grocery API. Check it and try again.");
   }
   if (!creds.token) throw new Error(creds.error || "Could not sign in. Ask for a new invite link.");
-  const page = /https?:\/\/[^\s#]+/.exec(link);
-  const saved = { api: base, token: creds.token, app: page ? page[0] : "" };
+  const saved = { api: base, token: creds.token };
   Keychain.set(KEY, JSON.stringify(saved));
   return saved;
 }
@@ -84,7 +83,6 @@ function build(result, saved, family) {
   const { items, stores } = result;
   const w = new ListWidget();
   w.backgroundColor = Color.dynamic(new Color("#ffffff"), new Color("#1c1c1e"));
-  if (saved.app) w.url = saved.app;
   w.refreshAfterDate = new Date(Date.now() + 15 * 60 * 1000);
   const text = Color.dynamic(new Color("#1c1c1e"), new Color("#ffffff"));
   const dim = Color.dynamic(new Color("#6e6e73"), new Color("#98989d"));
