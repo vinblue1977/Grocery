@@ -1,6 +1,6 @@
 // Grocery list widget for the free Scriptable app (https://scriptable.app). Read-only: it shows what is still to buy.
 // Setup is in widget/README.md. Run this script once inside Scriptable; after that it runs as a widget.
-// Nothing personal lives in this file: the API address, the pasted link and the widget's own sign-in
+// Nothing personal lives in this file: the API address and the widget's own sign-in
 // token are kept in the iOS Keychain on your phone.
 
 const KEY = "grocery-widget";
@@ -47,8 +47,7 @@ async function setup() {
     throw new Error("That API address did not answer like the Grocery API. Check it and try again.");
   }
   if (!creds.token) throw new Error(creds.error || "Could not sign in. Ask for a new invite link.");
-  const page = /https?:\/\/[^\s#]+/.exec(link);
-  const saved = { api: base, token: creds.token, app: page ? page[0] : "" };
+  const saved = { api: base, token: creds.token };
   Keychain.set(KEY, JSON.stringify(saved));
   return saved;
 }
@@ -79,12 +78,11 @@ function message(text) {
   return w;
 }
 
-function build(result, saved, family) {
+function build(result, family) {
   if (result.signedOut) return message("Grocery widget signed out. Run the Grocery script in Scriptable to set it up again.");
   const { items, stores } = result;
   const w = new ListWidget();
   w.backgroundColor = Color.dynamic(new Color("#ffffff"), new Color("#1c1c1e"));
-  if (saved.app) w.url = saved.app;
   w.refreshAfterDate = new Date(Date.now() + 15 * 60 * 1000);
   const text = Color.dynamic(new Color("#1c1c1e"), new Color("#ffffff"));
   const dim = Color.dynamic(new Color("#6e6e73"), new Color("#98989d"));
@@ -121,7 +119,7 @@ async function main() {
   let widget;
   const family = config.widgetFamily || "medium"; // Scriptable's own `config`: how and where the script runs
   try {
-    widget = build(await fetchList(saved), saved, family);
+    widget = build(await fetchList(saved), family);
   } catch (e) {
     widget = message("Could not reach the list. It will try again soon.");
   }
