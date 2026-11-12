@@ -4,7 +4,7 @@
 // token are kept in the iOS Keychain on your phone.
 
 const KEY = "grocery-widget";
-const MAX_LINES = { small: 4, medium: 4, large: 12 };
+const MAX_LINES = { small: 3, medium: 4, large: 12 };
 
 function load() {
   try {
@@ -39,9 +39,16 @@ async function setup() {
   req.method = "POST";
   req.headers = { "content-type": "application/json" };
   req.body = JSON.stringify({ code: match[1], deviceName: "Widget" });
-  const creds = await req.loadJSON();
-  if (!creds.token) throw new Error(creds.error || "Could not sign in.");
-  const saved = { api: base, token: creds.token, app: link.split("#")[0].startsWith("http") ? link.split("#")[0] : "" };
+  req.timeoutInterval = 15;
+  let creds;
+  try {
+    creds = await req.loadJSON();
+  } catch (e) {
+    throw new Error("That API address did not answer like the Grocery API. Check it and try again.");
+  }
+  if (!creds.token) throw new Error(creds.error || "Could not sign in. Ask for a new invite link.");
+  const page = /https?:\/\/[^\s#]+/.exec(link);
+  const saved = { api: base, token: creds.token, app: page ? page[0] : "" };
   Keychain.set(KEY, JSON.stringify(saved));
   return saved;
 }
@@ -51,7 +58,12 @@ async function fetchList(saved) {
   req.headers = { authorization: "Bearer " + saved.token };
   req.timeoutInterval = 15;
   const data = await req.loadJSON();
-  if (req.response.statusCode === 401) return { signedOut: true };
+  const status = req.response.statusCode;
+  if (status === 401) {
+    Keychain.remove(KEY); // the device was removed: the next run asks for a new invite
+    return { signedOut: true };
+  }
+  if (status !== 200) throw new Error("The list answered with " + status);
   const stores = new Map((data.stores || []).map((s) => [s.id, s.name]));
   const items = (data.items || []).filter((i) => !i.checked);
   return { items, stores };
@@ -59,6 +71,7 @@ async function fetchList(saved) {
 
 function message(text) {
   const w = new ListWidget();
+  w.refreshAfterDate = new Date(Date.now() + 15 * 60 * 1000);
   w.backgroundColor = new Color("#1c1c1e");
   const t = w.addText(text);
   t.textColor = Color.white();
@@ -67,7 +80,7 @@ function message(text) {
 }
 
 function build(result, saved, family) {
-  if (result.signedOut) return message("Grocery widget signed out. Open the script in Scriptable to set it up again.");
+  if (result.signedOut) return message("Grocery widget signed out. Run the Grocery script in Scriptable to set it up again.");
   const { items, stores } = result;
   const w = new ListWidget();
   w.backgroundColor = Color.dynamic(new Color("#ffffff"), new Color("#1c1c1e"));
@@ -99,6 +112,10 @@ function build(result, saved, family) {
 
 async function main() {
   let saved = load();
+  if (!saved && config.runsInWidget) {
+    Script.setWidget(message("Open Scriptable and run the Grocery script once to set it up."));
+    return;
+  }
   if (!saved) saved = await setup();
   if (!saved) return;
   let widget;
