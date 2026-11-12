@@ -4,6 +4,8 @@ A grocery list for two, on iPhone. Sign in once, then both of you add and check 
 
 It is a PWA (Add to Home Screen) on GitHub Pages, with a Python Lambda and DynamoDB behind it, and it runs at $0 inside the AWS free tier. The setup follows [TennisTracker](https://github.com/vinblue1977/TennisTracker): same CI, same checks.
 
+An optional iPhone widget (Scriptable, free) is in [`widget/`](widget/README.md).
+
 ## Develop
 
 ```sh
