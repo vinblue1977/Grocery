@@ -100,9 +100,6 @@ svg.qr { display: block; width: min(240px, 100%); margin: 12px auto; border-radi
 .sheet .row > button { flex: 1; }
 .sheet .ghost { background: none; border: 0; color: var(--mut); font: inherit; padding: 8px; }
 .reading { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--mut); }
-.mic-pulse { width: 64px; height: 64px; border-radius: 50%; background: var(--accl); display: grid; place-items: center; font-size: 28px; animation: pulse 1.2s ease-in-out infinite; }
-@keyframes pulse { 50% { transform: scale(1.12); } }
-@media (prefers-reduced-motion: reduce) { .mic-pulse { animation: none; } }
 .spin { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--acc); animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
