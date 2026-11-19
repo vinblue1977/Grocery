@@ -61,7 +61,9 @@ class GroceryStack(Stack):
         fn = lambda_.Function(
             self,
             "Api",
-            runtime=lambda_.Runtime.PYTHON_3_14,
+            # cdk-nag AwsSolutions-L1 insists on the newest runtime. TODO: use lambda_.Runtime.PYTHON_3_15 once
+            # aws-cdk-lib is 2.276+ (it does not have the constant before that).
+            runtime=lambda_.Runtime("python3.15", lambda_.RuntimeFamily.PYTHON),
             architecture=lambda_.Architecture.ARM_64,
             handler="api.handler.handler",
             code=lambda_.Code.from_asset("backend", exclude=["**/__pycache__", "**/*.pyc"]),

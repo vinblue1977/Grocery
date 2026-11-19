@@ -30,7 +30,7 @@ def test_api_is_a_function_url_not_api_gateway():
     t.has_resource_properties(
         "AWS::Lambda::Url", {"AuthType": "NONE", "Cors": {"AllowOrigins": ["https://vinblue1977.github.io"]}}
     )
-    t.has_resource_properties("AWS::Lambda::Function", {"Architectures": ["arm64"], "Runtime": "python3.14"})
+    t.has_resource_properties("AWS::Lambda::Function", {"Architectures": ["arm64"], "Runtime": "python3.15"})
 
 
 def test_the_public_url_has_a_concurrency_cap():
