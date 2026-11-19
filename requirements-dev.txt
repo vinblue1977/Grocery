@@ -29,9 +29,9 @@ aws-cdk-cloud-assembly-schema==55.4.0 \
     # via
     #   -c requirements.txt
     #   aws-cdk-lib
-aws-cdk-lib==2.275.0 \
-    --hash=sha256:0902d7368e4600588cad9eab9124ade10d7d9d463ccf86ae18272e4369b1936b \
-    --hash=sha256:223e5b8c67bee9802d714493b380251a2e8ce55c8c477e5d44ca2c85f3b322ee
+aws-cdk-lib==2.276.0 \
+    --hash=sha256:536b2a3455d31bab0a5b5d5d206d912a4db3260de5c047743a844e07f539cd40 \
+    --hash=sha256:c70b4e7a95aca58c3b19dc2c9b7ad19774eaf7f2120804f4d5cce2f8ad107f92
     # via
     #   -c requirements.txt
     #   -r requirements.in
@@ -40,15 +40,15 @@ boolean-py==5.0 \
     --hash=sha256:60cbc4bad079753721d32649545505362c754e121570ada4658b852a3a318d95 \
     --hash=sha256:ef28a70bd43115208441b53a045d1549e2f0ec6e3d08a9d142cbc41c1938e8d9
     # via license-expression
-boto3==1.43.125 \
-    --hash=sha256:101fe3ee99664e671efb9af65c8e98ec0bceddf6de922ea89685da4adc8c6907 \
-    --hash=sha256:5a635a0fbbd51f319e465b809cf043668705defbb9dddaf26ae66747f70b2a49
+boto3==1.44.1 \
+    --hash=sha256:1342653b8af9dc89f182cb5c0dfd5fa10f430d757c0ebd00326c053a6270d2c4 \
+    --hash=sha256:c81dfdaab894cbcba78aa3773fe3fb27a13b576f49ff5552b91190072fc7dac0
     # via
     #   -r requirements-dev.in
     #   moto
-botocore==1.43.125 \
-    --hash=sha256:e3969c8191d3435440037310187d324f37c00da53987ea31df2eceff19a2795a \
-    --hash=sha256:e3ae5ebbfa8033015958a9cb16cef67a0592902ca8afb46ef06e8ae77475183f
+botocore==1.44.6 \
+    --hash=sha256:757c7f33d006e8a3c873e1fed71611baaaa2ee4d72e6f830ec0423d02ec5de2d \
+    --hash=sha256:9deb4d9479d63aabf8fbd9169800821c1f47be77352d8b9b3d020de9a824794a
     # via
     #   boto3
     #   moto
