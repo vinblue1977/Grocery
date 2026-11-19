@@ -61,9 +61,9 @@ class GroceryStack(Stack):
         fn = lambda_.Function(
             self,
             "Api",
-            # cdk-nag AwsSolutions-L1 insists on the newest runtime. TODO: use lambda_.Runtime.PYTHON_3_15 once
-            # aws-cdk-lib is 2.276+ (it does not have the constant before that).
-            runtime=lambda_.Runtime("python3.15", lambda_.RuntimeFamily.PYTHON),
+            # Python 3.15 is only a public preview on Lambda (no SLA, "not for production"): stay on 3.14 until it is
+            # generally available, then move (see the AwsSolutions-L1 suppression below).
+            runtime=lambda_.Runtime.PYTHON_3_14,
             architecture=lambda_.Architecture.ARM_64,
             handler="api.handler.handler",
             code=lambda_.Code.from_asset("backend", exclude=["**/__pycache__", "**/*.pyc"]),
@@ -90,6 +90,10 @@ class GroceryStack(Stack):
         NagSuppressions.add_resource_suppressions(
             fn,
             [
+                NagPackSuppression(
+                    id="AwsSolutions-L1",
+                    reason="3.15 is preview only (python3.15 on Lambda has no SLA); remove this once it is generally available",
+                ),
                 NagPackSuppression(
                     id="AwsSolutions-IAM4",
                     reason="The AWS-managed basic execution policy only writes this function's own logs",
