@@ -10,6 +10,8 @@ import { DAY_MS, forStore, isLastToBuy, isResting, withItemUpdate, nextStore, pi
 import type { Session } from './session';
 import { ScanSheet } from './ScanSheet';
 import { SwipeRow } from './SwipeRow';
+import { speechSupported } from './voice';
+import { VoiceSheet } from './VoiceSheet';
 import type { ListsState } from './useLists';
 import { useWakeLock } from './useWakeLock';
 
@@ -47,6 +49,7 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
   const [editingOften, setEditingOften] = useState(false);
   const [storeName, setStoreName] = useState('');
   const [photo, setPhoto] = useState<File | null>(null);
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const [notice, setNotice] = useState('');
   const [toast, setToast] = useState<{ text: string; storeId?: string; undo?: () => void } | null>(null);
   const [undoBar, setUndoBar] = useState<{ text: string; run: () => void } | null>(null);
@@ -258,6 +261,14 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
       (d) => withNewItem(d, id, storeId, clean, session.person),
       { kind: 'addItem', id, storeId, name: clean, addedBy: session.person },
     );
+  };
+
+  // After a photo scan or a spoken list was confirmed and sent in one go.
+  const bulkAdded = ({ added, skipped }: { added: number; skipped: number }) => {
+    setNotice(`Added ${added} item${added === 1 ? '' : 's'}${skipped ? `, ${skipped} already on the list` : ''}`);
+    void lists.refresh();
+    clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setNotice(''), 6000);
   };
 
   // Done shopping for one store (its tab) or for all of them (the All tab).
@@ -535,6 +546,14 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
                 <circle cx="12" cy="13" r="3.5" />
               </svg>
             </button>
+            {speechSupported() && (
+              <button type="button" class="camera" aria-label="Add by speaking" disabled={offline || pending > 0} onClick={() => setVoiceOpen(true)}>
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="9" y="3" width="6" height="11" rx="3" />
+                  <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+                </svg>
+              </button>
+            )}
             <button type="submit" class="plus" aria-label="Add item">
               ＋
             </button>
@@ -671,12 +690,21 @@ export function Lists({ api, lists, session, onOpenSettings }: Props) {
           stores={data.stores}
           currentStoreId={storeId}
           onClose={() => setPhoto(null)}
-          onAdded={({ added, skipped }) => {
+          onAdded={(result) => {
             setPhoto(null);
-            setNotice(`Added ${added} item${added === 1 ? '' : 's'}${skipped ? `, ${skipped} already on the list` : ''}`);
-            void lists.refresh();
-            clearTimeout(noticeTimer.current);
-            noticeTimer.current = setTimeout(() => setNotice(''), 6000);
+            bulkAdded(result);
+          }}
+        />
+      )}
+      {voiceOpen && (
+        <VoiceSheet
+          api={api}
+          stores={data.stores}
+          currentStoreId={storeId}
+          onClose={() => setVoiceOpen(false)}
+          onAdded={(result) => {
+            setVoiceOpen(false);
+            bulkAdded(result);
           }}
         />
       )}

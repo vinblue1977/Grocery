@@ -617,6 +617,43 @@ describe('Lists screen', () => {
     expect(open).toHaveBeenCalled();
   });
 
+  it('hides the microphone where the browser cannot listen', async () => {
+    const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+    await flush();
+    expect(root.querySelector('[aria-label="Add by speaking"]')).toBeNull();
+  });
+
+  it('adds a spoken list through the review sheet', async () => {
+    class FakeRecognition {
+      onresult: ((e: unknown) => void) | null = null;
+      onerror = null;
+      onend = null;
+      start() {
+        setTimeout(() => this.onresult?.({ results: [[{ transcript: 'tea and honey' }]] }), 0);
+      }
+      stop() {}
+      abort() {}
+    }
+    vi.stubGlobal('webkitSpeechRecognition', FakeRecognition);
+    try {
+      const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
+      await flush();
+      await click(root.querySelector('[aria-label="Add by speaking"]'));
+      await flush();
+      expect(root.textContent).toContain('Heard 2 items');
+      await click(Array.from(root.querySelectorAll('button')).find((b) => b.textContent === 'Add 2 items') ?? null);
+      await flush();
+      expect(api.addItems).toHaveBeenCalledWith([
+        { name: 'tea', note: '', storeId: 'c' },
+        { name: 'honey', note: '', storeId: 'c' },
+      ]);
+      expect(root.textContent).toContain('Added 1 item, 1 already on the list');
+      expect(root.querySelector('.sheet')).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('puts an item back from the cart', async () => {
     const root = mount(<Harness api={api} onSignedOut={vi.fn()} />);
     await flush();
