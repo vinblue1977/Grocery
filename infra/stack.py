@@ -92,7 +92,7 @@ class GroceryStack(Stack):
             [
                 NagPackSuppression(
                     id="AwsSolutions-L1",
-                    reason="The only newer runtime (python3.15) is a public preview without SLA; remove this once it is GA",
+                    reason="3.15 is preview only (python3.15 on Lambda has no SLA); remove this once it is generally available",
                 ),
                 NagPackSuppression(
                     id="AwsSolutions-IAM4",
