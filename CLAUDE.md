@@ -18,6 +18,7 @@
 ## Code review
 
 - Run `/code-review` on every PR's diff before merging, and fix what it finds. Skip it only for docs-only PRs (`docs/` or top-level Markdown).
+- Never push until the review is done and every finding is resolved (fixed, or skipped with a reason shown in the chat table). That includes follow-up pushes to an open PR: re-review the new changes first. Docs-only PRs are exempt.
 - `/code-review` is the only review here: do not also run `/ponytail:ponytail-review` in this repo, whatever the global instructions say.
 
 ## Cost: $0 (one exception)
